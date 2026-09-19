@@ -1,0 +1,1 @@
+# GeoFoto-KMZ
