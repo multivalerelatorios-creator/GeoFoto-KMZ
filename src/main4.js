@@ -34,38 +34,26 @@ async function annotate(){
  if(!raw)return;
  const img=await loadImg(raw),c=document.createElement('canvas'),x=c.getContext('2d'),id=$('#templateSelect')?.value||cfg.defaultTemplate||'essential',t=TEMPLATES[id]||TEMPLATES.essential;
  c.width=img.width;c.height=img.height;x.drawImage(img,0,0);
- const pad=Math.round(c.width*.028),hasMap=t.map&&cfg.showMap!==false,panelH=Math.round(c.height*(hasMap?.30:.26)),panelY=c.height-panelH-Math.round(pad*.55),cardX=pad,cardW=c.width-pad*2,r=Math.round(pad*.75);
+ const pad=Math.round(c.width*.028),hasMap=t.map&&cfg.showMap!==false,panelRatio=Math.max(.12,Math.min(.34,Number(t.panel||(hasMap?.27:.22)))),panelH=Math.round(c.height*panelRatio),panelY=c.height-panelH-Math.round(pad*.55),cardX=pad,cardW=c.width-pad*2,r=Math.round(pad*.75);
  if(t.top&&cfg.showLogo!==false){
-   if(cfg.banner){
-    try{
-      const bi=await loadImg(cfg.banner),bh=Math.round(c.height*.105),ratio=bi.width/bi.height,dw=Math.min(Math.round(c.width*.40),Math.round(bh*ratio)),dh=Math.round(dw/ratio),bx=pad,by=pad;
-      const headerName=(cfg.appName||'GEOFOTO KMZ').trim().toLocaleUpperCase('pt-BR');
-      const nameX=bx+Math.round(pad*.55),nameW=Math.round(c.width*.28);
-      const headerH=Math.max(dh+Math.round(pad*.72),Math.round(c.height*.112));
-      x.fillStyle='rgba(255,255,255,.78)';
-      if(x.roundRect){x.beginPath();x.roundRect(bx,by,Math.min(c.width-pad*2,dw+nameW+Math.round(pad*1.4)),headerH,Math.round(pad*.42));x.fill()}else x.fillRect(bx,by,Math.min(c.width-pad*2,dw+nameW+Math.round(pad*1.4)),headerH);
-      x.drawImage(bi,bx+Math.round(c.width*.31),by+Math.round((headerH-dh)/2),dw,dh);
-      x.fillStyle='#102235';x.font='800 '+Math.max(28,Math.round(c.width*.031))+'px Arial';
-      x.fillText(headerName,nameX,by+Math.round(headerH*.58),nameW-Math.round(pad*.35));
-    }catch{}
-   } else {
-     x.fillStyle='rgba(10,24,40,.82)';
-     if(x.roundRect){x.beginPath();x.roundRect(pad,pad,Math.round(c.width*.34),Math.round(c.height*.062),r*.55);x.fill()}else x.fillRect(pad,pad,Math.round(c.width*.34),Math.round(c.height*.062));
-     x.fillStyle='#fff';x.font='700 '+Math.max(24,Math.round(c.width*.028))+'px Arial';
-     x.fillText((cfg.appName||'GEOFOTO KMZ').toLocaleUpperCase('pt-BR'),pad*1.55,pad+Math.round(c.height*.041));
-   }
+   const headerName=(cfg.appName||'GEOFOTO KMZ').trim().toLocaleUpperCase('pt-BR'),pillW=Math.round(c.width*.31),pillH=Math.round(c.height*.062);
+   x.fillStyle='rgba(7,18,31,.78)';if(x.roundRect){x.beginPath();x.roundRect(pad,pad,pillW,pillH,r*.55);x.fill()}else x.fillRect(pad,pad,pillW,pillH);
+   x.fillStyle='#fff';x.font='800 '+Math.max(24,Math.round(c.width*.028))+'px Arial';x.fillText(headerName,pad+Math.round(pad*.55),pad+Math.round(pillH*.66),pillW-pad);
+   if(cfg.banner){try{const bi=await loadImg(cfg.banner),boxW=Math.round(c.width*.24),boxH=Math.round(c.height*.105),bx=c.width-pad-boxW,by=pad,ratio=Math.min((boxW-pad)/bi.width,(boxH-pad*.6)/bi.height),dw=bi.width*ratio,dh=bi.height*ratio;
+    x.fillStyle='rgba(255,255,255,.86)';if(x.roundRect){x.beginPath();x.roundRect(bx,by,boxW,boxH,r*.55);x.fill()}else x.fillRect(bx,by,boxW,boxH);
+    x.drawImage(bi,bx+(boxW-dw)/2,by+(boxH-dh)/2,dw,dh)}catch{}}
  }
  x.save();x.fillStyle=t.light?'rgba(255,255,255,.94)':'rgba(7,18,31,.78)';
  if(x.roundRect){x.beginPath();x.roundRect(cardX,panelY,cardW,panelH,r);x.fill()}else x.fillRect(cardX,panelY,cardW,panelH);
  x.restore();
- const fg=t.light?'#102235':'#fff',muted=t.light?'#4d6070':'#d9e3ec',title=($('#pointName')?.value.trim()||('Ponto '+(points.length+1))).toLocaleUpperCase('pt-BR'),displayName=(cfg.company||'').trim();
+ const fg=t.light?'#102235':'#fff',muted=t.light?'#4d6070':'#d9e3ec',title=($('#pointName')?.value.trim()||('Ponto '+(points.length+1))).toLocaleUpperCase('pt-BR'),displayName=(cfg.company||'').trim(),titleScale=Number(t.titleScale||.034),textScale=Number(t.textScale||.019);
  const textX=cardX+pad,textW=hasMap?Math.round(cardW*.52):cardW-pad*2;
  const now=new Date(),timeText=now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),dateText=now.toLocaleDateString('pt-BR');
  const lat=geo?.latitude?.toFixed(6)||'-',lng=geo?.longitude?.toFixed(6)||'-',acc=Math.round(geo?.accuracy||0),city=geo?.city||'Nao identificada',address=(geo?.address||'Nao identificado').replace(/,\s*Regi[aã]o\s+Sul,?/i,'').replace(/,\s*Brasil$/i,'').replace(/,\s*$/,'').slice(0,92);
- x.fillStyle=fg;x.font='700 '+Math.max(26,Math.round(c.width*.027))+'px Arial';x.fillText(title,textX,panelY+Math.round(panelH*.11),textW);if(displayName){x.fillStyle=muted;x.font='700 '+Math.max(19,Math.round(c.width*.0175))+'px Arial';x.fillText('Nome: '+displayName,textX,panelY+Math.round(panelH*.22),textW);}
- x.fillStyle=fg;x.font='800 '+Math.max(42,Math.round(c.width*.042))+'px Arial';x.fillText(timeText,textX,panelY+Math.round(panelH*.38),textW);
- x.fillStyle=muted;x.font='700 '+Math.max(20,Math.round(c.width*.019))+'px Arial';x.fillText(dateText,textX,panelY+Math.round(panelH*.50),textW);
- x.font='600 '+Math.max(18,Math.round(c.width*.0165))+'px Arial';
+ x.fillStyle=fg;x.font='800 '+Math.max(30,Math.round(c.width*titleScale))+'px Arial';x.fillText(title,textX,panelY+Math.round(panelH*.12),textW);if(displayName){x.fillStyle=muted;x.font='700 '+Math.max(20,Math.round(c.width*textScale))+'px Arial';x.fillText('Nome: '+displayName,textX,panelY+Math.round(panelH*.23),textW);}
+ x.fillStyle=fg;x.font='850 '+Math.max(44,Math.round(c.width*Math.max(.044,textScale*2.2)))+'px Arial';x.fillText(timeText,textX,panelY+Math.round(panelH*.40),textW);
+ x.fillStyle=muted;x.font='700 '+Math.max(21,Math.round(c.width*textScale))+'px Arial';x.fillText(dateText,textX,panelY+Math.round(panelH*.51),textW);
+ x.font='650 '+Math.max(19,Math.round(c.width*Math.max(.0175,textScale*.94)))+'px Arial';
  let yy=panelY+Math.round(panelH*.62),line=Math.round(panelH*.095);
  yy=drawWrappedText(x,'GPS: '+lat+', '+lng,textX,yy,textW,line,1);
  yy=drawWrappedText(x,'Precisao: '+acc+' m  •  '+city,textX,yy,textW,line,1);
@@ -74,7 +62,7 @@ async function annotate(){
  const footerY=panelY+panelH-Math.round(pad*.82);x.fillStyle='#22c55e';x.beginPath();x.arc(textX,footerY,Math.max(7,Math.round(c.width*.006)),0,Math.PI*2);x.fill();
  x.fillStyle=muted;x.font='600 '+Math.max(14,Math.round(c.width*.013))+'px Arial';x.fillText('GPS OK • Foto registrada',textX+Math.round(pad*.5),footerY+Math.round(pad*.16),textW);
  if(hasMap){
-   const mw=Math.round(cardW*.40),mh=Math.round(panelH*.74),mx=cardX+cardW-pad-mw,my=panelY+Math.round(panelH*.13);
+   const mw=Math.round(cardW*(Number(t.mapWidth)||.34)),mh=Math.min(Math.round(c.height*(Number(t.mapHeight)||.20)),Math.round(panelH*.70)),mx=cardX+cardW-pad-mw,my=panelY+Math.round((panelH-mh)/2);
    await miniMap(x,mx,my,mw,mh);
  }
  photo=c.toDataURL('image/jpeg',.92)
@@ -102,14 +90,16 @@ async function miniMap(x,a,b,w,h){
  x.fillStyle='#fff';x.font='700 '+Math.max(18,w*.05)+'px Arial';x.fillText('MAPA / GPS',a+16,b+30);
 }
 async function loadOsmSnapshot(lat,lng,w=700,h=420,z=18){
- const n=2**z,tile=256,rad=lat*Math.PI/180;
- const wx=(lng+180)/360*n*tile,wy=(1-Math.log(Math.tan(rad)+1/Math.cos(rad))/Math.PI)/2*n*tile;
- const left=wx-w/2,top=wy-h/2,c=document.createElement('canvas'),g=c.getContext('2d');c.width=w;c.height=h;
- const x0=Math.floor(left/tile),x1=Math.floor((left+w)/tile),y0=Math.floor(top/tile),y1=Math.floor((top+h)/tile),jobs=[];
- for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++)jobs.push(loadImgCors('https://tile.openstreetmap.org/'+z+'/'+((tx%n)+n)%n+'/'+ty+'.png').then(img=>g.drawImage(img,tx*tile-left,ty*tile-top)).catch(()=>{}));
- await Promise.all(jobs);return c
+ const src='/api/static-map?lat='+encodeURIComponent(lat)+'&lng='+encodeURIComponent(lng)+'&w='+Math.round(w)+'&h='+Math.round(h)+'&z='+Math.round(z);
+ try{return await loadImg(src)}
+ catch{
+  const c=document.createElement('canvas'),g=c.getContext('2d');c.width=w;c.height=h;
+  g.fillStyle='#dfe7ee';g.fillRect(0,0,w,h);g.strokeStyle='#b7c7d5';g.lineWidth=Math.max(2,w*.004);
+  for(let i=-h;i<w+h;i+=Math.max(55,w*.12)){g.beginPath();g.moveTo(i,0);g.lineTo(i+h,h);g.stroke()}
+  g.fillStyle='#2563eb';g.beginPath();g.arc(w/2,h/2,Math.max(10,w*.025),0,Math.PI*2);g.fill();
+  g.strokeStyle='#fff';g.lineWidth=Math.max(3,w*.006);g.stroke();return c
+ }
 }
-function loadImgCors(src){return new Promise((r,j)=>{const i=new Image();i.crossOrigin='anonymous';i.onload=()=>r(i);i.onerror=j;i.src=src})}
 function loadImg(src){return new Promise((r,j)=>{const i=new Image();i.onload=()=>r(i);i.onerror=j;i.src=src})}
 function captureUi(){const v=$('#camera'),p=$('#preview');p.src=photo||raw;p.classList.remove('hidden');v.classList.add('hidden');$('#take').classList.add('hidden');$('#retake').classList.remove('hidden');$('#shareActions').classList.remove('hidden');$('#shareBtn').onclick=shareCurrent;$('#downloadBtn').onclick=downloadCurrentPhoto}
 function retake(){raw='';photo='';savedPhotoKey='';saving=false;$('#preview').classList.add('hidden');$('#camera').classList.remove('hidden');$('#take').classList.remove('hidden');$('#retake').classList.add('hidden');$('#shareActions').classList.add('hidden');$('#saveStatus').textContent='Aguardando nova foto...';startCamera();getGps()}
@@ -120,6 +110,7 @@ async function downloadCurrentPhoto(){const src=photo||raw;if(!src)return;const 
 async function shareCurrent(){return shareBlob(dataToBlob(photo||raw),`geofoto-${Date.now()}.jpg`)}
 async function shareRecord(id){const p=points.find(x=>x.id===id);if(!p)return;if(p.photo)return shareBlob(dataToBlob(p.photo),`${safeName(p.name)}.jpg`);if(p.photoUrl){const b=await apiBlob(p.photoUrl);return shareBlob(b,`${safeName(p.name)}.jpg`)}}
 async function shareBlob(blob,name){const f=new File([blob],name,{type:'image/jpeg'});if(navigator.canShare&&navigator.canShare({files:[f]})){try{return await navigator.share({title:'GeoFoto KMZ',text:'Registro georreferenciado',files:[f]})}catch{}}saveBlob(blob,name)}
+async function openRecordPhoto(id){const p=points.find(x=>x.id===id);if(!p)return;let src=p.photo||'',revoke='';try{if(!src&&p.photoUrl){const b=await apiBlob(p.photoUrl);src=URL.createObjectURL(b);revoke=src}if(!src)return;const box=document.createElement('div');box.className='photo-lightbox';const img=document.createElement('img');img.src=src;img.alt='Foto '+p.name;const meta=document.createElement('div');meta.className='photo-lightbox-meta';meta.innerHTML='<b>'+esc(p.name)+'</b><span>'+esc(fmt(p.time))+' · '+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6)+'</span>';const close=document.createElement('button');close.className='photo-lightbox-close';close.textContent='×';const done=()=>{box.remove();if(revoke)URL.revokeObjectURL(revoke)};close.onclick=done;box.onclick=e=>{if(e.target===box)done()};box.append(close,img,meta);document.body.appendChild(box)}catch(e){alert('Não foi possível abrir a foto: '+e.message)}}
 function renderRecords(){$('#records').innerHTML=`<div class="records-list">${points.slice().reverse().map(p=>`<div class="card record-card"><div class="record-head"><div><b>${esc(p.name)}</b><div class="muted small">${fmt(p.time)} · ${esc(p.city||'')}</div></div><span class="badge">${Math.round(p.accuracy||0)} m</span></div>${(p.photo||p.photoUrl)?`<img class="record-photo" data-photo-id="${p.id}" alt="Foto de ${attr(p.name)}">`:''}<div class="muted small">${esc(p.address||'Sem endereço')}</div><div class="muted small">${Number(p.lat).toFixed(6)}, ${Number(p.lng).toFixed(6)}</div><div class="actions"><button class="btn secondary" data-map="${p.lat},${p.lng}">Abrir Maps</button>${(p.photo||p.photoUrl)?`<button class="btn primary" data-share="${p.id}">Enviar</button>`:''}${role==='admin'?`<button class="btn secondary" data-delete="${p.id}">Excluir</button>`:''}</div></div>`).join('')||'<div class="card">Nenhum registro.</div>'}</div>`;document.querySelectorAll('[data-photo-id]').forEach(async img=>{const p=points.find(x=>x.id===img.dataset.photoId);try{if(p?.photo)img.src=p.photo;else if(p?.photoUrl){const b=await apiBlob(p.photoUrl),u=URL.createObjectURL(b);img.src=u;img.onload=()=>setTimeout(()=>URL.revokeObjectURL(u),30000)}}catch{img.alt='Foto indisponível'}});document.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>window.open(`https://www.google.com/maps?q=${b.dataset.map}`,'_blank'));document.querySelectorAll('[data-share]').forEach(b=>b.onclick=()=>shareRecord(b.dataset.share));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(!confirm('Excluir este registro e a foto?'))return;try{await api('/points/'+b.dataset.delete,{method:'DELETE'});await syncDown();renderDashboard();renderRecords();renderExport();if(map)initMap()}catch(e){alert(e.message)}})}
 function initMap(){if(!map){map=L.map('map',{zoomControl:true}).setView([-25.43,-49.27],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);markers=L.layerGroup().addTo(map)}markers.clearLayers();const valid=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lng)));valid.forEach(p=>L.marker([Number(p.lat),Number(p.lng)]).bindPopup(`<b>${esc(p.name)}</b><br>${fmt(p.time)}<br>${esc(p.city||'')}<br>${Number(p.lat).toFixed(6)}, ${Number(p.lng).toFixed(6)}`).addTo(markers));if(valid.length===1)map.setView([Number(valid[0].lat),Number(valid[0].lng)],17);else if(valid.length>1){const g=L.featureGroup(valid.map(p=>L.marker([Number(p.lat),Number(p.lng)])));map.fitBounds(g.getBounds().pad(.2))}setTimeout(()=>map.invalidateSize(),200)}
 function renderExport(){$("#export").innerHTML=`<div class="card"><h3>Central de registros</h3><p class="muted">Cada foto salva automaticamente já cria um Placemark no KML/KMZ.</p><div class="actions"><button class="btn secondary" id="refreshCloud">Atualizar da nuvem</button><button class="btn secondary" id="kml">Baixar KML</button><button class="btn primary" id="kmz">Baixar KMZ completo</button></div><div id="exportStatus" class="muted small"></div></div>`;$("#refreshCloud").onclick=async()=>{await syncDown();renderAll();alert("Pontos atualizados.")};$("#kml").onclick=()=>download("geofoto-kmz.kml",makeKml(),"application/vnd.google-earth.kml+xml");$("#kmz").onclick=async()=>{const btn=$("#kmz"),st=$("#exportStatus");btn.disabled=true;btn.textContent="Gerando KMZ...";if(st)st.textContent="Preparando pontos e fotos...";try{const z=new JSZip();z.file("doc.kml",makeKml());let fotos=0;for(const p of points){try{let b=null;if(p.photo)b=dataToBlob(p.photo);else if(p.photoUrl)b=await apiBlob(p.photoUrl);if(b){z.file("fotos/"+safeName(p.name)+"-"+String(p.id).slice(0,8)+".jpg",b);fotos++}}catch{}}if(st)st.textContent=`Compactando ${points.length} pontos e ${fotos} fotos...`;const blob=await z.generateAsync({type:"blob",compression:"DEFLATE"});saveBlob(blob,"geofoto-kmz.kmz");if(st)st.textContent=`✓ KMZ gerado com ${points.length} pontos e ${fotos} fotos.`}catch(e){if(st)st.textContent="Falha ao gerar KMZ.";alert("Falha ao gerar KMZ: "+e.message)}finally{btn.disabled=false;btn.textContent="Baixar KMZ completo"}}}
@@ -134,5 +125,31 @@ function esc(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt
 function attr(s=''){return String(s).replace(/"/g,'&quot;')}
 function xml(s=''){return esc(s)}
 function safeName(s='registro'){return String(s).replace(/[^a-z0-9_-]+/gi,'-')}
-if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));token?appView().catch(loginView):loginView()
 
+
+
+function photoPath(p){return 'fotos/'+safeName(p.name)+'-'+String(p.id).slice(0,8)+'.jpg'}
+document.addEventListener('click',e=>{const img=e.target.closest&&e.target.closest('[data-photo-id]');if(img)openRecordPhoto(img.dataset.photoId)});
+makeKml=function(withPhotos=false){
+ const items=points.map(p=>{const info=(p.note||'')+' | '+fmt(p.time)+' | '+(p.city||'')+' | '+(p.address||'')+' | Precisão '+Math.round(p.accuracy||0)+'m';
+  const image=withPhotos&&(p.photo||p.photoUrl)?'<br><img src="'+photoPath(p)+'" width="640">':'';
+  return '<Placemark><name>'+xml(p.name)+'</name><description><![CDATA['+esc(info)+image+']]></description><Point><coordinates>'+p.lng+','+p.lat+',0</coordinates></Point></Placemark>'});
+ return '<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>GeoFoto KMZ</name>'+items.join('')+'</Document></kml>'
+};
+
+renderExport=function(){
+ $('#export').innerHTML='<div class="card export-center"><div class="export-badge">KMZ</div><h3>Exportar para Google Earth</h3><p class="muted">O KMZ inclui os pontos, metadados e as fotos vinculadas aos respectivos registros.</p><div class="export-metrics"><div><b>'+points.length+'</b><span>Pontos</span></div><div><b>'+points.filter(p=>p.photo||p.photoUrl).length+'</b><span>Fotos</span></div></div><div class="actions"><button class="btn secondary" id="refreshCloud">Atualizar nuvem</button><button class="btn secondary" id="kml">Baixar KML</button><button class="btn primary" id="kmz">Baixar KMZ completo</button></div><div id="exportStatus" class="muted small"></div></div>';
+ $('#refreshCloud').onclick=async()=>{await syncDown();renderAll();alert('Pontos atualizados.')};
+ $('#kml').onclick=()=>download('geofoto-kmz.kml',makeKml(false),'application/vnd.google-earth.kml+xml');
+ $('#kmz').onclick=async()=>{const btn=$('#kmz'),st=$('#exportStatus');btn.disabled=true;btn.textContent='Gerando KMZ...';if(st)st.textContent='Preparando pontos e fotos...';
+  try{const z=new JSZip();z.file('doc.kml',makeKml(true));let fotos=0;
+   for(const p of points){try{let b=null;if(p.photo)b=dataToBlob(p.photo);else if(p.photoUrl)b=await apiBlob(p.photoUrl);if(b){z.file(photoPath(p),b);fotos++}}catch{}}
+   if(st)st.textContent='Compactando '+points.length+' pontos e '+fotos+' fotos...';
+   const blob=await z.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});saveBlob(blob,'geofoto-kmz.kmz');
+   if(st)st.textContent='✓ KMZ gerado com '+points.length+' pontos e '+fotos+' fotos vinculadas.'
+  }catch(e){if(st)st.textContent='Falha ao gerar KMZ.';alert('Falha ao gerar KMZ: '+e.message)}
+  finally{btn.disabled=false;btn.textContent='Baixar KMZ completo'}
+ };
+};
+
+if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(()=>{}));token?appView().catch(loginView):loginView()
