@@ -128,3 +128,7 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-ser
 .update-kicker{font-size:10px;font-weight:850;letter-spacing:.15em;color:#7db9ff}.update-card h2{margin:0;font-size:25px;letter-spacing:-.03em}.update-card p{margin:0;color:var(--gf-muted);line-height:1.55}
 .update-actions{display:grid;grid-template-columns:1fr 1.35fr;gap:9px;margin-top:8px}.update-actions .btn{min-height:48px}
 @media(max-width:500px){.update-card{padding:23px 18px}.update-actions{grid-template-columns:1fr}.update-actions .primary{order:-1}}
+
+/* ===== MODO OFFLINE ===== */
+.record-badges{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.badge.pending{color:#ffd98a;background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.34)}
+#netStatus{white-space:nowrap}.status.offline{color:#ffd98a}

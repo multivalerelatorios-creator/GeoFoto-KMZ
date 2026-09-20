@@ -59,7 +59,7 @@ async function savePoint(req,env){
     const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0)); photoKey=`photos/${id}.jpg`
     await env.PHOTOS.put(photoKey,bytes,{httpMetadata:{contentType:type}})
   }
-  await env.DB.prepare('INSERT INTO points (id,name,note,lat,lng,accuracy,time,city,address,photo_key) VALUES (?,?,?,?,?,?,?,?,?,?)')
+  await env.DB.prepare('INSERT INTO points (id,name,note,lat,lng,accuracy,time,city,address,photo_key) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,note=excluded.note,lat=excluded.lat,lng=excluded.lng,accuracy=excluded.accuracy,time=excluded.time,city=excluded.city,address=excluded.address,photo_key=CASE WHEN excluded.photo_key<>\'\' THEN excluded.photo_key ELSE points.photo_key END')
     .bind(id,String(p.name||'Ponto'),String(p.note||''),p.lat,p.lng,Number(p.accuracy||0),p.time||new Date().toISOString(),String(p.city||''),String(p.address||''),photoKey).run()
   return json({id,name:p.name||'Ponto',note:p.note||'',lat:p.lat,lng:p.lng,accuracy:p.accuracy||0,time:p.time||new Date().toISOString(),city:p.city||'',address:p.address||'',photoUrl:photoKey?`/api/photo/${id}`:''},201)
 }
