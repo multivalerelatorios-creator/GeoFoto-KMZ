@@ -1,1 +1,1 @@
-{"version":"1.2.3","released":"2026-09-20","name":"GeoFoto KMZ","notes":"Corrige a liberação da câmera e GPS após preencher a identificação do ponto e evita sobreposição do cabeçalho no celular."}
+{"version":"1.2.4","released":"2026-09-20","name":"GeoFoto KMZ","notes":"Corrige a troca de logo/banner: pré-visualização imediata, otimização da imagem e persistência no aparelho sem o logo antigo voltar após sincronizar."}
