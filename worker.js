@@ -7,16 +7,15 @@ export default {
   async fetch(req,env){
     const url=new URL(req.url)
     if(url.pathname==='/api/health') return json({ok:true,service:'GeoFoto KMZ Cloud'})
-    if(url.pathname==='/api/static-map'&&req.method==='GET'){
-      const lat=Number(url.searchParams.get('lat')),lng=Number(url.searchParams.get('lng'));
-      const w=Math.min(1200,Math.max(300,Number(url.searchParams.get('w'))||900));
-      const h=Math.min(900,Math.max(220,Number(url.searchParams.get('h'))||560));
-      const z=Math.min(19,Math.max(16,Number(url.searchParams.get('z'))||18));
-      if(!Number.isFinite(lat)||!Number.isFinite(lng)) return new Response('Coordenadas invalidas',{status:400});
-      const src='https://staticmap.openstreetmap.de/staticmap.php?center='+lat+','+lng+'&zoom='+z+'&size='+Math.round(w)+'x'+Math.round(h)+'&maptype=mapnik&markers='+lat+','+lng+',lightblue1';
-      const rr=await fetch(src,{headers:{'User-Agent':'GeoFoto-KMZ/1.0'}});
-      if(!rr.ok) return new Response('Mapa indisponivel',{status:rr.status});
-      return new Response(rr.body,{headers:{'content-type':rr.headers.get('content-type')||'image/png','cache-control':'public, max-age=300'}});
+    if(url.pathname.startsWith('/api/tile/')&&req.method==='GET'){
+      const m=url.pathname.match(/^\/api\/tile\/(\d+)\/(\d+)\/(\d+)\.png$/);
+      if(!m) return new Response('Tile invalido',{status:400});
+      const z=Number(m[1]),x=Number(m[2]),y=Number(m[3]);
+      if(!Number.isInteger(z)||z<0||z>19||!Number.isInteger(x)||!Number.isInteger(y)) return new Response('Tile invalido',{status:400});
+      const src='https://tile.openstreetmap.org/'+z+'/'+x+'/'+y+'.png';
+      const rr=await fetch(src,{headers:{'User-Agent':'GeoFoto-KMZ/1.1 (field mapping app)'}});
+      if(!rr.ok) return new Response('Tile indisponivel',{status:rr.status});
+      return new Response(rr.body,{headers:{'content-type':'image/png','cache-control':'public, max-age=86400'}});
     }
     if(url.pathname==='/api/login'&&req.method==='POST'){
       const b=await req.json().catch(()=>({}))

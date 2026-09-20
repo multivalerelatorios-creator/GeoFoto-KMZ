@@ -76,6 +76,8 @@ async function miniMap(x,a,b,w,h){
      x.save();
      if(x.roundRect){x.beginPath();x.roundRect(a,b,w,h,Math.round(w*.035));x.clip()}
      x.drawImage(img,a,b,w,h);
+     x.fillStyle='rgba(7,18,31,.68)';x.fillRect(a,b+h-Math.max(18,h*.075),Math.min(w*.48,165),Math.max(18,h*.075));
+     x.fillStyle='#fff';x.font='600 '+Math.max(10,w*.027)+'px Arial';x.fillText('© OpenStreetMap',a+8,b+h-6);
      const cx=a+w/2,cy=b+h/2;
      x.fillStyle='rgba(37,99,235,.22)';x.beginPath();x.arc(cx,cy,Math.max(24,w*.07),0,Math.PI*2);x.fill();
      x.fillStyle='#2563eb';x.beginPath();x.arc(cx,cy,Math.max(10,w*.026),0,Math.PI*2);x.fill();
@@ -90,15 +92,17 @@ async function miniMap(x,a,b,w,h){
  x.fillStyle='#fff';x.font='700 '+Math.max(18,w*.05)+'px Arial';x.fillText('MAPA / GPS',a+16,b+30);
 }
 async function loadOsmSnapshot(lat,lng,w=700,h=420,z=18){
- const src='/api/static-map?lat='+encodeURIComponent(lat)+'&lng='+encodeURIComponent(lng)+'&w='+Math.round(w)+'&h='+Math.round(h)+'&z='+Math.round(z);
- try{return await loadImg(src)}
- catch{
-  const c=document.createElement('canvas'),g=c.getContext('2d');c.width=w;c.height=h;
-  g.fillStyle='#dfe7ee';g.fillRect(0,0,w,h);g.strokeStyle='#b7c7d5';g.lineWidth=Math.max(2,w*.004);
-  for(let i=-h;i<w+h;i+=Math.max(55,w*.12)){g.beginPath();g.moveTo(i,0);g.lineTo(i+h,h);g.stroke()}
-  g.fillStyle='#2563eb';g.beginPath();g.arc(w/2,h/2,Math.max(10,w*.025),0,Math.PI*2);g.fill();
-  g.strokeStyle='#fff';g.lineWidth=Math.max(3,w*.006);g.stroke();return c
+ const n=2**z,tile=256,rad=lat*Math.PI/180;
+ const worldX=(lng+180)/360*n*tile,worldY=(1-Math.log(Math.tan(rad)+1/Math.cos(rad))/Math.PI)/2*n*tile;
+ const left=worldX-w/2,top=worldY-h/2,c=document.createElement('canvas'),g=c.getContext('2d');c.width=w;c.height=h;
+ g.fillStyle='#e7edf2';g.fillRect(0,0,w,h);
+ const x0=Math.floor(left/tile),x1=Math.floor((left+w)/tile),y0=Math.floor(top/tile),y1=Math.floor((top+h)/tile),jobs=[];
+ for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++){
+  const wrapped=((tx%n)+n)%n,dx=Math.round(tx*tile-left),dy=Math.round(ty*tile-top);
+  jobs.push(loadImg('/api/tile/'+z+'/'+wrapped+'/'+ty+'.png').then(img=>g.drawImage(img,dx,dy,tile,tile)).catch(()=>{}));
  }
+ await Promise.all(jobs);
+ return c
 }
 function loadImg(src){return new Promise((r,j)=>{const i=new Image();i.onload=()=>r(i);i.onerror=j;i.src=src})}
 function captureUi(){const v=$('#camera'),p=$('#preview');p.src=photo||raw;p.classList.remove('hidden');v.classList.add('hidden');$('#take').classList.add('hidden');$('#retake').classList.remove('hidden');$('#shareActions').classList.remove('hidden');$('#shareBtn').onclick=shareCurrent;$('#downloadBtn').onclick=downloadCurrentPhoto}
