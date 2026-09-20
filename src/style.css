@@ -164,3 +164,14 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-ser
 @media(max-width:760px){.settings-reorg{grid-template-columns:1fr}.settings-wide{grid-column:auto}.settings-session{align-items:flex-start;flex-direction:column}.settings-session .btn{width:100%}}
 
 .brand-account{display:grid;gap:1px;min-width:0}.brand-account b{font-size:14px;letter-spacing:.03em}.brand-account small{font-size:10px;color:var(--gf-muted);font-weight:650}
+
+/* ===== LOGIN AUTOATENDIMENTO / PLAY STORE ===== */
+.login-card-hub{width:min(520px,94vw);padding:28px}
+.login-brand{margin-bottom:22px}.login-brand h1{font-size:28px;letter-spacing:.04em}
+.access-pane{display:grid;gap:12px}.access-intro{margin-bottom:4px}.access-intro>span{display:block;color:#7db9ff;font-size:10px;font-weight:850;letter-spacing:.16em;margin-bottom:6px}.access-intro h2,.access-pane>h2{margin:0;font-size:24px;letter-spacing:-.03em}.access-intro p,.access-pane>p{margin:6px 0 0;color:var(--gf-muted);line-height:1.5}
+.access-choice{width:100%;display:grid;gap:4px;text-align:left;padding:16px;border-radius:15px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.045);color:#fff;transition:.18s ease}.access-choice:hover{transform:translateY(-1px);border-color:rgba(96,165,250,.32);background:rgba(37,99,235,.09)}.access-choice b{font-size:15px}.access-choice span{font-size:12px;line-height:1.4;color:var(--gf-muted)}.access-choice.personal{border-color:rgba(23,182,164,.22);background:rgba(23,182,164,.06)}
+.link-back,.text-action{border:0;background:transparent;color:#8fc2ff;padding:4px 0;text-align:left;cursor:pointer}.text-action{width:100%;margin-top:8px;text-align:center;font-size:12px}.link-back{font-weight:700;margin-bottom:4px}
+.signup-explain{display:grid;gap:7px;padding:12px;margin:10px 0 14px;border-radius:12px;background:rgba(37,99,235,.08);border:1px solid rgba(96,165,250,.15);font-size:12px;color:var(--gf-muted)}
+.signup-success{display:grid;gap:10px;margin-top:8px}.signup-success h3{margin:0}.signup-success p{margin:0;color:var(--gf-muted);line-height:1.45}.success-dot{width:42px;height:42px;display:grid;place-items:center;border-radius:50%;background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.22);color:#8ef0b0;font-size:22px;font-weight:900}
+.credential-row{display:grid;gap:4px;padding:11px 12px;border-radius:11px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}.credential-row span{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--gf-muted)}.credential-row b,.credential-row code{font-size:13px;overflow-wrap:anywhere}.credential-row code{color:#b9d6ff}.credential-row.recovery{border-color:rgba(245,158,11,.22);background:rgba(245,158,11,.06)}.signup-success.compact{margin-top:14px}
+@media(max-width:520px){.login-card-hub{padding:22px 18px}.login-brand h1{font-size:25px}.access-intro h2,.access-pane>h2{font-size:22px}.access-choice{padding:14px}}

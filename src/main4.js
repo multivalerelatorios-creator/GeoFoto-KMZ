@@ -2,7 +2,7 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.3.1'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.0'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false
 const TEMPLATES={
 essential:{name:'Essencial',description:'Dados principais com mapa e identificação.',top:true,panel:.27,map:true,mapWidth:.34,mapHeight:.23,titleScale:.034,textScale:.019},
@@ -16,7 +16,8 @@ minimal:{name:'Minimalista',description:'Identificação, data, coordenadas e mi
 function templateRows(t){if(t.minimal)return[`Data/Hora: ${fmt(new Date())}`,`GPS: ${geo?.latitude?.toFixed(6)||'-'}, ${geo?.longitude?.toFixed(6)||'-'}`];const rows=[`Data/Hora: ${fmt(new Date())}`,`Latitude: ${geo?.latitude?.toFixed(6)||'-'}  Longitude: ${geo?.longitude?.toFixed(6)||'-'}`,`Precisão: ${Math.round(geo?.accuracy||0)} m`,`Cidade: ${geo?.city||'Não identificada'}`,`Endereço: ${(geo?.address||'Não identificado').slice(0,80)}`];return rows}
 L.Icon.Default.mergeOptions({iconRetinaUrl:'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',iconUrl:'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',shadowUrl:'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png'})
 function storeKey(base){return base+':'+(tenant||'principal')}
-function accountLabel(){return (tenant||'principal')==='principal'?'MULTIVALE':String(tenant).toLocaleUpperCase('pt-BR')}
+function accountLabel(){if(tenant==='personal')return 'USO PESSOAL';return (tenant||'principal')==='principal'?'MULTIVALE':String(tenant).toLocaleUpperCase('pt-BR')}
+function isPersonalMode(){return role==='personal'||tenant==='personal'}
 function loadCfg(){const d={appName:'GEOFOTO KMZ',company:'',banner:'',primaryColor:'#0f766e',defaultTemplate:'essential',enabledTemplates:['essential','compact','location','corporate','technical','evidence','minimal'],showLogo:true,showMap:true};try{return {...d,...JSON.parse(localStorage.getItem(storeKey(CFG))||'{}')}}catch{return d}}
 function saveCfg(){localStorage.setItem(storeKey(CFG),JSON.stringify(cfg))}
 function loadLocalBrand(){try{const raw=localStorage.getItem(storeKey(LOCAL_BRAND))||(tenant==='principal'?localStorage.getItem(LOCAL_BRAND):null);return JSON.parse(raw||'{}')}catch{return{}}}
@@ -38,6 +39,7 @@ async function requestPersistentStorage(){try{if(navigator.storage?.persist)awai
 function mergePoints(cloud,pending){const m=new Map();for(const p of cloud||[])m.set(p.id,p);for(const p of pending||[])if(!m.has(p.id))m.set(p.id,{...p,_pending:true});return [...m.values()].sort((a,b)=>String(a.time).localeCompare(String(b.time)))}
 async function updatePendingStatus(mode=''){
  const n=(await pendingAll().catch(()=>[])).length,el=$('#netStatus');if(!el)return n;
+ if(isPersonalMode()){el.textContent='● Uso pessoal · salvo no aparelho';return n}
  if(mode==='sync')el.textContent='● Sincronizando '+n+' pendente'+(n===1?'':'s');
  else if(!navigator.onLine)el.textContent='● Offline'+(n?' · '+n+' pendente'+(n===1?'':'s'):'');
  else el.textContent=n?'● Nuvem · '+n+' pendente'+(n===1?'':'s'):'● Nuvem conectada';
@@ -57,27 +59,108 @@ function ensureIdentity(){
   form.onsubmit=e=>{e.preventDefault();const v=input.value.trim();if(v.length<2){gate.querySelector('#identityMsg').textContent='Informe uma identificação válida.';input.focus();return}identity=v;sessionStorage.setItem(IDENTITY,identity);localStorage.setItem(IDENTITY,identity);gate.remove();resolve(identity)}
  })
 }
+async function startTenantSession(d,account){
+ token=d.token;role=d.role||'user';tenant=d.tenant||account||'principal';identity='';cfg=loadCfg();mergeLocalBrand();
+ sessionStorage.setItem('gf_token',token);sessionStorage.setItem('gf_role',role);sessionStorage.setItem('gf_tenant',tenant);
+ localStorage.setItem('gf_token',token);localStorage.setItem('gf_role',role);localStorage.setItem(ACCOUNT,tenant);
+ sessionStorage.removeItem(IDENTITY);localStorage.removeItem(IDENTITY);await appView()
+}
+async function copyText(v){
+ try{await navigator.clipboard.writeText(v);return true}
+ catch{const t=document.createElement('textarea');t.value=v;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();return true}
+}
 function loginView(){
  stopCamera();
- const account=localStorage.getItem(ACCOUNT)||tenant||'principal';
- $('#app').innerHTML=`<main class="login"><div class="login-card"><div class="brand"><div class="logo">⌖</div><div><h1>GEOFOTO KMZ</h1><div class="muted">Registro georreferenciado de campo</div></div></div><form id="loginForm"><label class="field">Código da conta<input id="account" value="${attr(account)}" autocomplete="organization" autocapitalize="none" spellcheck="false" required></label><div class="muted small">Cada empresa possui um código próprio. Os dados ficam separados por conta.</div><label class="field">Usuário<input id="user" autocomplete="username" required></label><label class="field">Senha<input id="pass" type="password" autocomplete="current-password" required></label><button class="btn primary full">Entrar</button><p id="loginMsg" class="muted"></p></form></div></main>`;
+ const saved=localStorage.getItem(ACCOUNT)||tenant||'principal',account=saved==='personal'?'principal':saved;
+ $('#app').innerHTML=`<main class="login login-hub">
+ <div class="login-card login-card-hub">
+  <div class="brand login-brand"><div class="logo">⌖</div><div><h1>GEOFOTO KMZ</h1><div class="muted">Registro georreferenciado de campo</div></div></div>
+  <div id="accessHome" class="access-pane">
+   <div class="access-intro"><span>COMEÇAR</span><h2>Como deseja usar o aplicativo?</h2><p>Escolha uma opção. Você pode trabalhar com uma empresa ou usar o GeoFoto KMZ somente neste aparelho.</p></div>
+   <button class="access-choice" id="existingCompany" type="button"><b>🏢 Já possuo acesso de uma empresa</b><span>Entrar com código da empresa, usuário e senha.</span></button>
+   <button class="access-choice" id="newCompany" type="button"><b>＋ Cadastrar minha empresa</b><span>Cria a conta e gera acesso de administrador e colaborador.</span></button>
+   <button class="access-choice personal" id="personalUse" type="button"><b>👤 Usar para uso próprio</b><span>Sem cadastro e sem vínculo com empresa. Os dados ficam neste aparelho.</span></button>
+  </div>
+  <div id="companyLogin" class="access-pane hidden">
+   <button class="link-back" data-back type="button">← Voltar</button>
+   <h2>Entrar pela empresa</h2>
+   <form id="loginForm">
+    <label class="field">Código da empresa<input id="account" value="${attr(account)}" autocomplete="organization" autocapitalize="none" spellcheck="false" required></label>
+    <label class="field">Usuário<input id="user" autocomplete="username" required></label>
+    <label class="field">Senha<input id="pass" type="password" autocomplete="current-password" required></label>
+    <button class="btn primary full">Entrar</button>
+    <button class="text-action" id="recoverAccess" type="button">Recuperar acesso administrativo</button>
+    <p id="loginMsg" class="muted"></p>
+   </form>
+  </div>
+  <div id="companyRegister" class="access-pane hidden">
+   <button class="link-back" data-back type="button">← Voltar</button>
+   <h2>Cadastrar empresa</h2>
+   <p class="muted">O GeoFoto KMZ criará automaticamente o código da empresa e dois acessos iniciais.</p>
+   <form id="registerForm">
+    <label class="field">Nome da empresa<input id="companyNameNew" maxlength="80" placeholder="Ex.: Empresa Exemplo Engenharia" required></label>
+    <div class="signup-explain"><span>Administrador: configura a conta e gerencia acessos.</span><span>Colaborador: registra fotos, pontos e KMZ.</span></div>
+    <button class="btn primary full" type="submit">Criar empresa e acessos</button>
+    <p id="registerMsg" class="muted"></p>
+   </form>
+   <div id="registerResult" class="hidden"></div>
+  </div>
+  <div id="recoverPane" class="access-pane hidden">
+   <button class="link-back" id="backLogin" type="button">← Voltar ao login</button>
+   <h2>Recuperar administrador</h2>
+   <p class="muted">Use o código de recuperação entregue no cadastro da empresa.</p>
+   <form id="recoverForm">
+    <label class="field">Código da empresa<input id="recoverAccount" required></label>
+    <label class="field">Código de recuperação<input id="recoverCode" placeholder="GFKM-XXXX-XXXX-XXXX" required></label>
+    <button class="btn primary full" type="submit">Gerar nova senha de administrador</button>
+    <p id="recoverMsg" class="muted"></p>
+   </form>
+   <div id="recoverResult" class="hidden"></div>
+  </div>
+ </div>
+ </main>`;
+ const panes=['#accessHome','#companyLogin','#companyRegister','#recoverPane'];
+ const showPane=id=>{for(const p of panes)$(p)?.classList.add('hidden');$(id)?.classList.remove('hidden')};
+ document.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>showPane('#accessHome'));
+ $('#existingCompany').onclick=()=>showPane('#companyLogin');
+ $('#newCompany').onclick=()=>showPane('#companyRegister');
+ $('#personalUse').onclick=async()=>{
+  token='';role='personal';tenant='personal';identity=localStorage.getItem(IDENTITY)||'';cfg=loadCfg();mergeLocalBrand();
+  sessionStorage.removeItem('gf_token');sessionStorage.setItem('gf_role','personal');sessionStorage.setItem('gf_tenant','personal');
+  localStorage.removeItem('gf_token');localStorage.setItem('gf_role','personal');localStorage.setItem(ACCOUNT,'personal');
+  await appView()
+ };
  $('#loginForm').onsubmit=async e=>{
-  e.preventDefault();
-  const account=$('#account').value.trim().toLowerCase();
+  e.preventDefault();const acc=$('#account').value.trim().toLowerCase();
+  try{const d=await api('/login',{method:'POST',body:JSON.stringify({account:acc,user:$('#user').value,pass:$('#pass').value})});await startTenantSession(d,acc)}
+  catch(x){$('#loginMsg').textContent=x.message}
+ };
+ $('#recoverAccess').onclick=()=>{$('#recoverAccount').value=$('#account').value.trim();showPane('#recoverPane')};
+ $('#backLogin').onclick=()=>showPane('#companyLogin');
+ let created=null;
+ $('#registerForm').onsubmit=async e=>{
+  e.preventDefault();const btn=e.submitter,msg=$('#registerMsg');btn.disabled=true;btn.textContent='Criando empresa...';msg.textContent='';
   try{
-   const d=await api('/login',{method:'POST',body:JSON.stringify({account,user:$('#user').value,pass:$('#pass').value})});
-   token=d.token;role=d.role||'user';tenant=d.tenant||account||'principal';identity='';cfg=loadCfg();mergeLocalBrand();
-   sessionStorage.setItem('gf_token',token);sessionStorage.setItem('gf_role',role);sessionStorage.setItem('gf_tenant',tenant);
-   localStorage.setItem('gf_token',token);localStorage.setItem('gf_role',role);localStorage.setItem(ACCOUNT,tenant);
-   sessionStorage.removeItem(IDENTITY);localStorage.removeItem(IDENTITY);
-   await appView()
-  }catch(x){$('#loginMsg').textContent=x.message}
- }
+   created=await api('/register-company',{method:'POST',body:JSON.stringify({name:$('#companyNameNew').value.trim()})});
+   $('#registerForm').classList.add('hidden');const r=$('#registerResult');r.classList.remove('hidden');
+   r.innerHTML='<div class="signup-success"><span class="success-dot">✓</span><h3>Empresa cadastrada</h3><p>Guarde estes dados. O código de recuperação permite redefinir o administrador sem suporte.</p><div class="credential-row"><span>Código da empresa</span><b>'+esc(created.accountCode)+'</b></div><div class="credential-row"><span>Administrador</span><b>'+esc(created.admin.user)+'</b><code>'+esc(created.admin.password)+'</code></div><div class="credential-row"><span>Colaborador</span><b>'+esc(created.collaborator.user)+'</b><code>'+esc(created.collaborator.password)+'</code></div><div class="credential-row recovery"><span>Código de recuperação</span><code>'+esc(created.recoveryCode)+'</code></div><button class="btn secondary full" id="copyCreated" type="button">Copiar dados de acesso</button><button class="btn primary full" id="enterCreated" type="button">Entrar como administrador</button></div>';
+   $('#copyCreated').onclick=async()=>{const text='GeoFoto KMZ - '+created.companyName+'\nCódigo da empresa: '+created.accountCode+'\nAdministrador: '+created.admin.user+'\nSenha administrador: '+created.admin.password+'\nColaborador: '+created.collaborator.user+'\nSenha colaborador: '+created.collaborator.password+'\nCódigo de recuperação: '+created.recoveryCode;await copyText(text);$('#copyCreated').textContent='✓ Dados copiados'};
+   $('#enterCreated').onclick=async()=>{const d=await api('/login',{method:'POST',body:JSON.stringify({account:created.accountCode,user:created.admin.user,pass:created.admin.password})});await startTenantSession(d,created.accountCode)}
+  }catch(x){msg.textContent=x.message}
+  finally{btn.disabled=false;btn.textContent='Criar empresa e acessos'}
+ };
+ $('#recoverForm').onsubmit=async e=>{
+  e.preventDefault();const msg=$('#recoverMsg');msg.textContent='';
+  try{const d=await api('/recover-company',{method:'POST',body:JSON.stringify({account:$('#recoverAccount').value.trim(),recoveryCode:$('#recoverCode').value.trim()})});const r=$('#recoverResult');r.classList.remove('hidden');r.innerHTML='<div class="signup-success compact"><h3>Nova senha criada</h3><div class="credential-row"><span>Usuário</span><b>'+esc(d.adminUser)+'</b><code>'+esc(d.adminPassword)+'</code></div><button class="btn secondary full" id="copyRecoveryPass" type="button">Copiar nova senha</button></div>';$('#copyRecoveryPass').onclick=()=>copyText(d.adminPassword)}
+  catch(x){msg.textContent=x.message}
+ };
 }
+
 async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><div class="brand-account"><b>${accountLabel()}</b><small>GeoFoto KMZ</small></div></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">${accountLabel()} · Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status">● Conectando</span></header><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await syncDown();await ensureIdentity();renderAll();setTimeout(syncPendingQueue,900)}
 function show(id,b){if(id!=='capture')stopCamera();document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$('#'+id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#title').textContent={dashboard:'Painel',capture:'Câmera',mapa:'Mapa geral',records:'Registros',export:'Exportar KML/KMZ',settings:'Configurações'}[id];if(id==='mapa')setTimeout(()=>{initMap();map.invalidateSize()},180)}
 async function syncDown(){
  const pending=await pendingAll().catch(()=>[]);
+ if(isPersonalMode()){const legacyRaw=localStorage.getItem(storeKey(LOCAL))||'[]',legacy=JSON.parse(legacyRaw||'[]');points=mergePoints(legacy,pending);await updatePendingStatus();return}
  try{
   const cloud=await api('/points');points=mergePoints(cloud,pending);
   try{cfg={...cfg,...await api('/config')};mergeLocalBrand();saveCfg()}catch{mergeLocalBrand()}
@@ -89,6 +172,7 @@ async function syncDown(){
  }
 }
 async function syncPendingQueue(){
+ if(isPersonalMode())return updatePendingStatus();
  if(offlineSyncing)return; if(!navigator.onLine)return updatePendingStatus();
  const pending=await pendingAll().catch(()=>[]);if(!pending.length)return updatePendingStatus();
  offlineSyncing=true;await updatePendingStatus('sync');let sent=0;
@@ -248,13 +332,13 @@ async function getGps(){
  },e=>{const denied=e.code===1;set('error',denied?'Permissão de localização bloqueada. Ative a localização para o GeoFoto KMZ.':'Falha no GPS: '+e.message);updateCaptureReady();resolve(false)},{enableHighAccuracy:true,timeout:20000,maximumAge:0}))
 }
 async function reverse(lat,lng){try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`),d=await r.json(),a=d.address||{};return{address:d.display_name||'',city:a.city||a.town||a.village||a.municipality||a.county||''}}catch{return{address:'',city:''}}}
-async function maybeAutoSave(){if(!photo||!geo||saving||!savedPhotoKey)return;const key=savedPhotoKey;saving=true;const st=$('#saveStatus');if(st)st.textContent='Salvando automaticamente e adicionando o pino ao mapa/KMZ...';const p={id:crypto.randomUUID(),name:($('#pointName').value.trim()||`Ponto ${points.length+1}`).toLocaleUpperCase('pt-BR'),note:$('#note').value.trim(),lat:geo.latitude,lng:geo.longitude,accuracy:geo.accuracy,time:new Date().toISOString(),city:geo.city||'',address:geo.address||'',photo};try{if(!navigator.onLine)throw Error('offline');await api('/points',{method:'POST',body:JSON.stringify(p)});await syncDown();if(st)st.textContent='✓ Salvo na nuvem. Pino adicionado ao mapa e ao KMZ.';renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}catch{await pendingPut(p);await syncDown();if(st)st.textContent='✓ Salvo offline neste aparelho. Envio automático quando a internet voltar.';renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}finally{await updatePendingStatus();if(savedPhotoKey===key)saving=false}}
+async function maybeAutoSave(){if(!photo||!geo||saving||!savedPhotoKey)return;const key=savedPhotoKey;saving=true;const st=$('#saveStatus');if(st)st.textContent='Salvando automaticamente e adicionando o pino ao mapa/KMZ...';const p={id:crypto.randomUUID(),name:($('#pointName').value.trim()||`Ponto ${points.length+1}`).toLocaleUpperCase('pt-BR'),note:$('#note').value.trim(),lat:geo.latitude,lng:geo.longitude,accuracy:geo.accuracy,time:new Date().toISOString(),city:geo.city||'',address:geo.address||'',photo};try{if(isPersonalMode()){await pendingPut(p);await syncDown();if(st)st.textContent='✓ Salvo neste aparelho. Pino adicionado ao mapa e ao KMZ.';renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)};return}if(!navigator.onLine)throw Error('offline');await api('/points',{method:'POST',body:JSON.stringify(p)});await syncDown();if(st)st.textContent='✓ Salvo na nuvem. Pino adicionado ao mapa e ao KMZ.';renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}catch{await pendingPut(p);await syncDown();if(st)st.textContent='✓ Salvo offline neste aparelho. Envio automático quando a internet voltar.';renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}finally{await updatePendingStatus();if(savedPhotoKey===key)saving=false}}
 async function downloadCurrentPhoto(){const src=photo||raw;if(!src)return;const blob=dataToBlob(src),point=safeName($('#pointName')?.value||'geofoto'),name=`${point}-${Date.now()}.jpg`,st=$('#saveStatus');try{saveBlob(blob,name);if(st)st.textContent='✓ Foto salva no celular. Verifique a pasta Downloads.'}catch(e){if(st)st.textContent='Não foi possível salvar a foto neste aparelho.'}}
 async function shareCurrent(){return shareBlob(dataToBlob(photo||raw),`geofoto-${Date.now()}.jpg`)}
 async function shareRecord(id){const p=points.find(x=>x.id===id);if(!p)return;if(p.photo)return shareBlob(dataToBlob(p.photo),`${safeName(p.name)}.jpg`);if(p.photoUrl){const b=await apiBlob(p.photoUrl);return shareBlob(b,`${safeName(p.name)}.jpg`)}}
 async function shareBlob(blob,name){const f=new File([blob],name,{type:'image/jpeg'});if(navigator.canShare&&navigator.canShare({files:[f]})){try{return await navigator.share({title:'GeoFoto KMZ',text:'Registro georreferenciado',files:[f]})}catch{}}saveBlob(blob,name)}
 async function openRecordPhoto(id){const p=points.find(x=>x.id===id);if(!p)return;let src=p.photo||'',revoke='';try{if(!src&&p.photoUrl){const b=await apiBlob(p.photoUrl);src=URL.createObjectURL(b);revoke=src}if(!src)return;const box=document.createElement('div');box.className='photo-lightbox';const img=document.createElement('img');img.src=src;img.alt='Foto '+p.name;const meta=document.createElement('div');meta.className='photo-lightbox-meta';meta.innerHTML='<b>'+esc(p.name)+'</b><span>'+esc(fmt(p.time))+' · '+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6)+'</span>';const close=document.createElement('button');close.className='photo-lightbox-close';close.textContent='×';const done=()=>{box.remove();if(revoke)URL.revokeObjectURL(revoke)};close.onclick=done;box.onclick=e=>{if(e.target===box)done()};box.append(close,img,meta);document.body.appendChild(box)}catch(e){alert('Não foi possível abrir a foto: '+e.message)}}
-function renderRecords(){$('#records').innerHTML=`<div class="records-list">${points.slice().reverse().map(p=>`<div class="card record-card"><div class="record-head"><div><b>${esc(p.name)}</b><div class="muted small">${fmt(p.time)} · ${esc(p.city||'')}</div></div><div class="record-badges"><span class="badge">${Math.round(p.accuracy||0)} m</span>${p._pending?'<span class="badge pending">Pendente</span>':''}</div></div>${(p.photo||p.photoUrl)?`<img class="record-photo" data-photo-id="${p.id}" alt="Foto de ${attr(p.name)}">`:''}<div class="record-note"><b>Descrição:</b><span>${esc(p.note||'Sem descrição informada.')}</span></div><div class="muted small">${esc(p.address||'Sem endereço')}</div><div class="muted small">${Number(p.lat).toFixed(6)}, ${Number(p.lng).toFixed(6)}</div><div class="actions"><button class="btn secondary" data-map="${p.lat},${p.lng}">Abrir Maps</button>${(p.photo||p.photoUrl)?`<button class="btn primary" data-share="${p.id}">Enviar</button>`:''}${role==='admin'?`<button class="btn secondary" data-delete="${p.id}">Excluir</button>`:''}</div></div>`).join('')||'<div class="card">Nenhum registro.</div>'}</div>`;document.querySelectorAll('[data-photo-id]').forEach(async img=>{const p=points.find(x=>x.id===img.dataset.photoId);try{if(p?.photo)img.src=p.photo;else if(p?.photoUrl){const b=await apiBlob(p.photoUrl),u=URL.createObjectURL(b);img.src=u;img.onload=()=>setTimeout(()=>URL.revokeObjectURL(u),30000)}}catch{img.alt='Foto indisponível'}});document.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>window.open(`https://www.google.com/maps?q=${b.dataset.map}`,'_blank'));document.querySelectorAll('[data-share]').forEach(b=>b.onclick=()=>shareRecord(b.dataset.share));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(!confirm('Excluir este registro e a foto?'))return;try{await api('/points/'+b.dataset.delete,{method:'DELETE'});await syncDown();renderDashboard();renderRecords();renderExport();if(map)initMap()}catch(e){alert(e.message)}})}
+function renderRecords(){$('#records').innerHTML=`<div class="records-list">${points.slice().reverse().map(p=>`<div class="card record-card"><div class="record-head"><div><b>${esc(p.name)}</b><div class="muted small">${fmt(p.time)} · ${esc(p.city||'')}</div></div><div class="record-badges"><span class="badge">${Math.round(p.accuracy||0)} m</span>${p._pending?'<span class="badge pending">'+(isPersonalMode()?'Neste aparelho':'Pendente')+'</span>':''}</div></div>${(p.photo||p.photoUrl)?`<img class="record-photo" data-photo-id="${p.id}" alt="Foto de ${attr(p.name)}">`:''}<div class="record-note"><b>Descrição:</b><span>${esc(p.note||'Sem descrição informada.')}</span></div><div class="muted small">${esc(p.address||'Sem endereço')}</div><div class="muted small">${Number(p.lat).toFixed(6)}, ${Number(p.lng).toFixed(6)}</div><div class="actions"><button class="btn secondary" data-map="${p.lat},${p.lng}">Abrir Maps</button>${(p.photo||p.photoUrl)?`<button class="btn primary" data-share="${p.id}">Enviar</button>`:''}${(role==='admin'||role==='personal')?`<button class="btn secondary" data-delete="${p.id}">Excluir</button>`:''}</div></div>`).join('')||'<div class="card">Nenhum registro.</div>'}</div>`;document.querySelectorAll('[data-photo-id]').forEach(async img=>{const p=points.find(x=>x.id===img.dataset.photoId);try{if(p?.photo)img.src=p.photo;else if(p?.photoUrl){const b=await apiBlob(p.photoUrl),u=URL.createObjectURL(b);img.src=u;img.onload=()=>setTimeout(()=>URL.revokeObjectURL(u),30000)}}catch{img.alt='Foto indisponível'}});document.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>window.open(`https://www.google.com/maps?q=${b.dataset.map}`,'_blank'));document.querySelectorAll('[data-share]').forEach(b=>b.onclick=()=>shareRecord(b.dataset.share));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(!confirm('Excluir este registro e a foto?'))return;try{if(isPersonalMode()||points.find(p=>p.id===b.dataset.delete)?._pending){await pendingDelete(b.dataset.delete);const rest=points.filter(p=>p.id!==b.dataset.delete&&!p._pending);localStorage.setItem(storeKey(LOCAL),JSON.stringify(rest))}else await api('/points/'+b.dataset.delete,{method:'DELETE'});await syncDown();renderDashboard();renderRecords();renderExport();if(map)initMap()}catch(e){alert(e.message)}})}
 function initMap(){if(!map){map=L.map('map',{zoomControl:true}).setView([-25.43,-49.27],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);markers=L.layerGroup().addTo(map)}markers.clearLayers();const valid=points.filter(p=>Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lng)));valid.forEach(p=>L.marker([Number(p.lat),Number(p.lng)]).bindPopup(`<b>${esc(p.name)}</b><br><b>Descrição:</b> ${esc(p.note||'Sem descrição informada.')}<br>${fmt(p.time)}<br>${esc(p.city||'')}<br>${Number(p.lat).toFixed(6)}, ${Number(p.lng).toFixed(6)}`).addTo(markers));if(valid.length===1)map.setView([Number(valid[0].lat),Number(valid[0].lng)],17);else if(valid.length>1){const g=L.featureGroup(valid.map(p=>L.marker([Number(p.lat),Number(p.lng)])));map.fitBounds(g.getBounds().pad(.2))}setTimeout(()=>map.invalidateSize(),200)}
 function renderExport(){$("#export").innerHTML=`<div class="card"><h3>Central de registros</h3><p class="muted">Cada foto salva automaticamente já cria um Placemark no KML/KMZ.</p><div class="actions"><button class="btn secondary" id="refreshCloud">Atualizar da nuvem</button><button class="btn secondary" id="kml">Baixar KML</button><button class="btn primary" id="kmz">Baixar KMZ completo</button></div><div id="exportStatus" class="muted small"></div></div>`;$("#refreshCloud").onclick=async()=>{await syncDown();renderAll();alert("Pontos atualizados.")};$("#kml").onclick=()=>download("geofoto-kmz.kml",makeKml(),"application/vnd.google-earth.kml+xml");$("#kmz").onclick=async()=>{const btn=$("#kmz"),st=$("#exportStatus");btn.disabled=true;btn.textContent="Gerando KMZ...";if(st)st.textContent="Preparando pontos e fotos...";try{const z=new JSZip();z.file("doc.kml",makeKml());let fotos=0;for(const p of points){try{let b=null;if(p.photo)b=dataToBlob(p.photo);else if(p.photoUrl)b=await apiBlob(p.photoUrl);if(b){z.file("fotos/"+safeName(p.name)+"-"+String(p.id).slice(0,8)+".jpg",b);fotos++}}catch{}}if(st)st.textContent=`Compactando ${points.length} pontos e ${fotos} fotos...`;const blob=await z.generateAsync({type:"blob",compression:"DEFLATE"});saveBlob(blob,"geofoto-kmz.kmz");if(st)st.textContent=`✓ KMZ gerado com ${points.length} pontos e ${fotos} fotos.`}catch(e){if(st)st.textContent="Falha ao gerar KMZ.";alert("Falha ao gerar KMZ: "+e.message)}finally{btn.disabled=false;btn.textContent="Baixar KMZ completo"}}}
 function renderSettings(){
@@ -295,12 +379,12 @@ function renderSettings(){
    <button class="btn secondary" id="logout">Sair do aplicativo</button>
   </div>
  </div>`;
- const persist=async()=>{saveCfg();try{await api('/config',{method:'POST',body:JSON.stringify(cfg)})}catch(e){if(role==='admin')alert(e.message)}};
+ const persist=async()=>{saveCfg();if(isPersonalMode())return;try{await api('/config',{method:'POST',body:JSON.stringify(cfg)})}catch(e){if(role==='admin')alert(e.message)}};
  $('#saveIdentity').onclick=()=>{const id=$('#identityName').value.trim();if(id.length<2){alert('Informe o nome do técnico/usuário.');$('#identityName').focus();return}identity=id;sessionStorage.setItem(IDENTITY,identity);alert('Identidade salva.')};
  $('#saveAppearance').onclick=async()=>{cfg.primaryColor=$('#primaryColor').value;const f=$('#bannerFile').files[0];if(f)cfg.banner=await fileData(f);await persist();alert('Aparência salva.')};
  $('#clearCfg').onclick=async()=>{cfg.banner='';await persist();renderSettings()};
  $('#saveTemplates').onclick=async()=>{const ids=[...document.querySelectorAll('[data-template]:checked')].map(x=>x.dataset.template);cfg.enabledTemplates=ids.length?ids:['essential'];cfg.defaultTemplate=cfg.enabledTemplates.includes($('#defaultTemplate').value)?$('#defaultTemplate').value:cfg.enabledTemplates[0];await persist();alert('Modelos atualizados.')};
- $('#refresh').onclick=async()=>{const b=$('#refresh'),st=$('#syncState');b.disabled=true;b.textContent='Sincronizando...';st.textContent='Sincronizando';try{await syncDown();renderAll();alert('Registros sincronizados com a nuvem.')}catch{st.textContent='Falha na sincronização'}finally{b.disabled=false;b.textContent='Sincronizar registros'}};
+ $('#refresh').onclick=async()=>{const b=$('#refresh'),st=$('#syncState');b.disabled=true;b.textContent=isPersonalMode()?'Atualizando...':'Sincronizando...';st.textContent=isPersonalMode()?'Atualizando':'Sincronizando';try{await syncDown();renderAll();if(!isPersonalMode())alert('Registros sincronizados com a nuvem.')}catch{st.textContent='Falha na atualização'}finally{b.disabled=false;b.textContent=isPersonalMode()?'Atualizar histórico':'Sincronizar registros'}};
  $('#checkUpdate').onclick=async()=>{const st=$('#appUpdateState');st.textContent='Verificando...';const found=await checkForUpdate(true);if(!found)st.textContent='Aplicativo atualizado'};
  $('#logout').onclick=()=>{sessionStorage.removeItem('gf_token');sessionStorage.removeItem('gf_role');sessionStorage.removeItem('gf_tenant');sessionStorage.removeItem(IDENTITY);localStorage.removeItem('gf_token');localStorage.removeItem('gf_role');localStorage.removeItem(IDENTITY);token='';role='user';identity='';loginView()}
 }
@@ -327,8 +411,8 @@ makeKml=function(withPhotos=false){
 };
 
 renderExport=function(){
- $('#export').innerHTML='<div class="card export-center"><div class="export-badge">KMZ</div><h3>Exportar para Google Earth</h3><p class="muted">O KMZ inclui os pontos, metadados e as fotos vinculadas aos respectivos registros.</p><div class="export-metrics"><div><b>'+points.length+'</b><span>Pontos</span></div><div><b>'+points.filter(p=>p.photo||p.photoUrl).length+'</b><span>Fotos</span></div></div><div class="actions"><button class="btn secondary" id="refreshCloud">Atualizar nuvem</button><button class="btn secondary" id="kml">Baixar KML</button><button class="btn primary" id="kmz">Baixar KMZ completo</button></div><div id="exportStatus" class="muted small"></div></div>';
- $('#refreshCloud').onclick=async()=>{await syncDown();renderAll();alert('Pontos atualizados.')};
+ $('#export').innerHTML='<div class="card export-center"><div class="export-badge">KMZ</div><h3>Exportar para Google Earth</h3><p class="muted">O KMZ inclui os pontos, metadados e as fotos vinculadas aos respectivos registros.</p><div class="export-metrics"><div><b>'+points.length+'</b><span>Pontos</span></div><div><b>'+points.filter(p=>p.photo||p.photoUrl).length+'</b><span>Fotos</span></div></div><div class="actions"><button class="btn secondary" id="refreshCloud">'+(isPersonalMode()?'Atualizar histórico':'Atualizar nuvem')+'</button><button class="btn secondary" id="kml">Baixar KML</button><button class="btn primary" id="kmz">Baixar KMZ completo</button></div><div id="exportStatus" class="muted small"></div></div>';
+ $('#refreshCloud').onclick=async()=>{await syncDown();renderAll();if(!isPersonalMode())alert('Pontos atualizados.')};
  $('#kml').onclick=()=>download('geofoto-kmz.kml',makeKml(false),'application/vnd.google-earth.kml+xml');
  $('#kmz').onclick=async()=>{const btn=$('#kmz'),st=$('#exportStatus');btn.disabled=true;btn.textContent='Gerando KMZ...';if(st)st.textContent='Preparando pontos e fotos...';
   try{const z=new JSZip();z.file('doc.kml',makeKml(true));let fotos=0;

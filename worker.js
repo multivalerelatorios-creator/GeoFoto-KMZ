@@ -6,6 +6,25 @@ async function sha256(v){
   const hash=await crypto.subtle.digest('SHA-256',bytes)
   return [...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,'0')).join('')
 }
+function hex(bytes){return [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+function fromHex(v){const a=new Uint8Array(v.length/2);for(let i=0;i<a.length;i++)a[i]=parseInt(v.slice(i*2,i*2+2),16);return a}
+async function passwordHash(pass){
+  const salt=crypto.getRandomValues(new Uint8Array(16))
+  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(String(pass||'')),'PBKDF2',false,['deriveBits'])
+  const bits=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt,iterations:100000},key,256)
+  return 'pbkdf2$100000$'+hex(salt)+'$'+hex(bits)
+}
+async function verifyPassword(pass,stored){
+  if(String(stored||'').startsWith('pbkdf2$')){
+    const [,it,saltHex,hashHex]=stored.split('$')
+    const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(String(pass||'')),'PBKDF2',false,['deriveBits'])
+    const bits=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:fromHex(saltHex),iterations:Number(it)||100000},key,256)
+    return hex(bits)===hashHex
+  }
+  return String(stored||'')===await sha256(pass)
+}
+function randomReadable(n=10){const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',a=crypto.getRandomValues(new Uint8Array(n));return [...a].map(x=>chars[x%chars.length]).join('')}
+function companySlug(name){return String(name||'empresa').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,28)||'empresa'}
 async function sessionOf(req,env){
   const token=bearer(req); if(!token)return null
   if(token===env.GEOFOTO_ADMIN_TOKEN)return{tenant_id:'principal',role:'admin',super:true,legacy:true}
@@ -29,6 +48,37 @@ export default {
    if(!rr.ok)return new Response('Tile indisponivel',{status:rr.status})
    return new Response(rr.body,{headers:{'content-type':'image/png','cache-control':'public, max-age=86400'}})
   }
+  if(url.pathname==='/api/register-company'&&req.method==='POST'){
+   const b=await req.json().catch(()=>({})),name=String(b.name||'').trim().replace(/\s+/g,' ')
+   if(name.length<2||name.length>80)return json({error:'Informe o nome da empresa (2 a 80 caracteres).'},400)
+   const ipHash=await sha256(req.headers.get('CF-Connecting-IP')||'unknown'),since=new Date(Date.now()-86400000).toISOString()
+   const lim=await env.DB.prepare('SELECT COUNT(*) n FROM registration_log WHERE ip_hash=? AND created_at>?').bind(ipHash,since).first().catch(()=>({n:0}))
+   if(Number(lim?.n||0)>=3)return json({error:'Limite de cadastros atingido nesta rede. Tente novamente amanhã.'},429)
+   let id=''
+   for(let i=0;i<8;i++){const candidate=companySlug(name)+'-'+randomReadable(4).toLowerCase(),exists=await env.DB.prepare('SELECT id FROM tenants WHERE id=?').bind(candidate).first();if(!exists){id=candidate;break}}
+   if(!id)return json({error:'Não foi possível gerar o código da empresa. Tente novamente.'},500)
+   const adminPass='ADM-'+randomReadable(10),userPass='COL-'+randomReadable(10),recovery='GFKM-'+randomReadable(4)+'-'+randomReadable(4)+'-'+randomReadable(4),now=new Date().toISOString()
+   await env.DB.batch([
+    env.DB.prepare('INSERT INTO tenants (id,name,enabled) VALUES (?,?,1)').bind(id,name),
+    env.DB.prepare('INSERT INTO tenant_users (tenant_id,username,password_hash,role,enabled) VALUES (?,?,?,?,1)').bind(id,'admin',await passwordHash(adminPass),'admin'),
+    env.DB.prepare('INSERT INTO tenant_users (tenant_id,username,password_hash,role,enabled) VALUES (?,?,?,?,1)').bind(id,'colaborador',await passwordHash(userPass),'user'),
+    env.DB.prepare('INSERT INTO tenant_recovery (tenant_id,recovery_hash,created_at) VALUES (?,?,?)').bind(id,await sha256(recovery),now),
+    env.DB.prepare('INSERT INTO registration_log (ip_hash,tenant_id,created_at) VALUES (?,?,?)').bind(ipHash,id,now)
+   ])
+   return json({ok:true,accountCode:id,companyName:name,admin:{user:'admin',password:adminPass},collaborator:{user:'colaborador',password:userPass},recoveryCode:recovery},201)
+  }
+  if(url.pathname==='/api/recover-company'&&req.method==='POST'){
+   const b=await req.json().catch(()=>({})),tenant=cleanTenant(b.account),code=String(b.recoveryCode||'').trim().toUpperCase()
+   if(tenant==='principal'||code.length<8)return json({error:'Código da conta ou recuperação inválido.'},400)
+   const rec=await env.DB.prepare('SELECT recovery_hash FROM tenant_recovery WHERE tenant_id=?').bind(tenant).first()
+   if(!rec||rec.recovery_hash!==await sha256(code))return json({error:'Código da conta ou recuperação inválido.'},401)
+   const pass='ADM-'+randomReadable(10),h=await passwordHash(pass)
+   await env.DB.batch([
+    env.DB.prepare("UPDATE tenant_users SET password_hash=?,enabled=1 WHERE tenant_id=? AND username='admin'").bind(h,tenant),
+    env.DB.prepare('DELETE FROM tenant_sessions WHERE tenant_id=?').bind(tenant)
+   ])
+   return json({ok:true,accountCode:tenant,adminUser:'admin',adminPassword:pass})
+  }
   if(url.pathname==='/api/login'&&req.method==='POST'){
    const b=await req.json().catch(()=>({})),tenant=cleanTenant(b.account)
    if(tenant==='principal'&&b.user===env.GEOFOTO_ADMIN_USER&&b.pass===env.GEOFOTO_ADMIN_PASS)
@@ -36,7 +86,7 @@ export default {
    if(tenant==='principal'&&b.user===env.GEOFOTO_USER&&b.pass===env.GEOFOTO_PASS)
     return json({token:env.GEOFOTO_TOKEN,role:'user',tenant:'principal',accountName:'Conta principal'})
    const u=await env.DB.prepare('SELECT u.password_hash,u.role,u.enabled,t.name,t.enabled tenant_enabled FROM tenant_users u JOIN tenants t ON t.id=u.tenant_id WHERE u.tenant_id=? AND u.username=?').bind(tenant,String(b.user||'').trim()).first()
-   if(!u||!u.enabled||!u.tenant_enabled||u.password_hash!==await sha256(b.pass))return json({error:'Conta, usuário ou senha inválidos'},401)
+   if(!u||!u.enabled||!u.tenant_enabled||!(await verifyPassword(b.pass,u.password_hash)))return json({error:'Conta, usuário ou senha inválidos'},401)
    const token=crypto.randomUUID()+crypto.randomUUID(),exp=new Date(Date.now()+30*86400000).toISOString()
    await env.DB.prepare('INSERT INTO tenant_sessions (token,tenant_id,role,expires_at) VALUES (?,?,?,?)').bind(token,tenant,u.role,exp).run()
    return json({token,role:u.role,tenant,accountName:u.name})
@@ -92,7 +142,7 @@ export default {
    if(!isAdmin(s))return json({error:'Acesso exclusivo do administrador'},403)
    const b=await req.json().catch(()=>({})),user=String(b.user||'').trim(),pass=String(b.pass||''),role=b.role==='admin'?'admin':'user'
    if(user.length<3||pass.length<6)return json({error:'Usuário deve ter 3+ caracteres e senha 6+ caracteres'},400)
-   const h=await sha256(pass)
+   const h=await passwordHash(pass)
    await env.DB.prepare('INSERT INTO tenant_users (tenant_id,username,password_hash,role,enabled) VALUES (?,?,?,?,1) ON CONFLICT(tenant_id,username) DO UPDATE SET password_hash=excluded.password_hash,role=excluded.role,enabled=1').bind(s.tenant_id,user,h,role).run()
    return json({ok:true,user,role},201)
   }
@@ -109,7 +159,7 @@ export default {
    const exists=await env.DB.prepare('SELECT id FROM tenants WHERE id=?').bind(id).first()
    if(exists)return json({error:'Este código de conta já existe'},409)
    await env.DB.prepare('INSERT INTO tenants (id,name,enabled) VALUES (?,?,1)').bind(id,name).run()
-   await env.DB.prepare('INSERT INTO tenant_users (tenant_id,username,password_hash,role,enabled) VALUES (?,?,?,?,1)').bind(id,user,await sha256(pass),'admin').run()
+   await env.DB.prepare('INSERT INTO tenant_users (tenant_id,username,password_hash,role,enabled) VALUES (?,?,?,?,1)').bind(id,user,await passwordHash(pass),'admin').run()
    return json({ok:true,id,name,admin:user},201)
   }
   return json({error:'Rota não encontrada'},404)
