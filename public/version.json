@@ -1,1 +1,1 @@
-{"version":"1.2.2","released":"2026-09-20","name":"GeoFoto KMZ","notes":"Atualização somente quando houver versão nova e fluxo guiado para liberar câmera e GPS após identificar o ponto"}
+{"version":"1.2.3","released":"2026-09-20","name":"GeoFoto KMZ","notes":"Corrige a liberação da câmera e GPS após preencher a identificação do ponto e evita sobreposição do cabeçalho no celular."}

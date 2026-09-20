@@ -2,7 +2,7 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', APP_VERSION='1.2.2'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', APP_VERSION='1.2.3'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,installPrompt=null,offlineSyncing=false
 const TEMPLATES={
 essential:{name:'Essencial',description:'Dados principais com mapa e identificação.',top:true,panel:.27,map:true,mapWidth:.34,mapHeight:.23,titleScale:.034,textScale:.019},
@@ -94,12 +94,18 @@ function renderCapture(){
  pn.addEventListener('input',()=>{const start=pn.selectionStart,end=pn.selectionEnd;pn.value=pn.value.toLocaleUpperCase('pt-BR');try{pn.setSelectionRange(start,end)}catch{}hint.textContent=pn.value.trim()?'Identificação informada.':'Informe a identificação antes da foto.';updateCaptureReady()});
  $('#take').onclick=takePhoto;$('#retake').onclick=retake;$('#gps').onclick=getGps;$('#retrySensors').onclick=startCameraAndGps;
  $('#templateSelect').onchange=e=>{const t=TEMPLATES[e.target.value];$('#templateHint').textContent=t?.description||'';$('#templatePreview').innerHTML=`<b>${t?.name||''}</b><p class="muted">${t?.description||''}</p>`}
+ updateCaptureReady();
 }
 async function startCameraAndGps(){const point=$('#pointName')?.value.trim();if(!point){const hint=$('#pointNameHint');if(hint)hint.textContent='⚠ Preencha a identificação antes de liberar a câmera.';updateCaptureReady();return}await Promise.allSettled([startCamera(),getGps()]);updateCaptureReady()}
 function updateCaptureReady(){
- const take=$('#take'),v=$('#camera'),cam=!!(stream&&v&&v.videoWidth>0),gps=!!geo,point=!!$('#pointName')?.value.trim();
+ const take=$('#take'),retry=$('#retrySensors'),gpsBtn=$('#gps'),v=$('#camera'),cam=!!(stream&&v&&v.videoWidth>0),gps=!!geo,point=!!$('#pointName')?.value.trim();
+ if(retry){retry.disabled=!point;retry.textContent=cam&&gps?'Câmera e GPS prontos':(cam||gps?'Concluir liberação':'Liberar câmera e GPS')}
+ if(gpsBtn)gpsBtn.disabled=!point;
  if(take){take.disabled=!(cam&&gps&&point);take.title=take.disabled?'Aguarde câmera, GPS e identificação do ponto.':''}
- const st=$('#saveStatus');if(st&&!raw)st.textContent=cam&&gps?(point?'Pronto para registrar.':'Informe a identificação do ponto.'):'Aguardando câmera e GPS...';
+ const camState=$('#camState'),gpsState=$('#gpsState');
+ if(point&&!cam&&camState&&camState.classList.contains('waiting'))camState.querySelector('span').textContent='Pronto para liberar';
+ if(point&&!gps&&gpsState&&gpsState.classList.contains('waiting'))gpsState.querySelector('span').textContent='Pronto para liberar';
+ const st=$('#saveStatus');if(st&&!raw){if(!point)st.textContent='Preencha a identificação do ponto para liberar câmera e GPS.';else if(cam&&gps)st.textContent='Pronto para registrar.';else st.textContent='Identificação informada. Toque em “Liberar câmera e GPS”.';}
 }
 async function startCamera(){
  const v=$('#camera'),state=$('#camState'),info=$('#camInfo');if(!v)return false;
