@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "GeoFoto KMZ",
-  "short_name": "GeoFoto",
+  "name": "GeoFoto KMZ - Multivale",
+  "short_name": "GeoFoto MV",
   "description": "Registro de fotos georreferenciadas e exportação KML/KMZ",
   "start_url": "/",
   "scope": "/",

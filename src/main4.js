@@ -2,7 +2,7 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.3.0'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.3.1'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false
 const TEMPLATES={
 essential:{name:'Essencial',description:'Dados principais com mapa e identificação.',top:true,panel:.27,map:true,mapWidth:.34,mapHeight:.23,titleScale:.034,textScale:.019},
@@ -16,6 +16,7 @@ minimal:{name:'Minimalista',description:'Identificação, data, coordenadas e mi
 function templateRows(t){if(t.minimal)return[`Data/Hora: ${fmt(new Date())}`,`GPS: ${geo?.latitude?.toFixed(6)||'-'}, ${geo?.longitude?.toFixed(6)||'-'}`];const rows=[`Data/Hora: ${fmt(new Date())}`,`Latitude: ${geo?.latitude?.toFixed(6)||'-'}  Longitude: ${geo?.longitude?.toFixed(6)||'-'}`,`Precisão: ${Math.round(geo?.accuracy||0)} m`,`Cidade: ${geo?.city||'Não identificada'}`,`Endereço: ${(geo?.address||'Não identificado').slice(0,80)}`];return rows}
 L.Icon.Default.mergeOptions({iconRetinaUrl:'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',iconUrl:'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',shadowUrl:'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png'})
 function storeKey(base){return base+':'+(tenant||'principal')}
+function accountLabel(){return (tenant||'principal')==='principal'?'MULTIVALE':String(tenant).toLocaleUpperCase('pt-BR')}
 function loadCfg(){const d={appName:'GEOFOTO KMZ',company:'',banner:'',primaryColor:'#0f766e',defaultTemplate:'essential',enabledTemplates:['essential','compact','location','corporate','technical','evidence','minimal'],showLogo:true,showMap:true};try{return {...d,...JSON.parse(localStorage.getItem(storeKey(CFG))||'{}')}}catch{return d}}
 function saveCfg(){localStorage.setItem(storeKey(CFG),JSON.stringify(cfg))}
 function loadLocalBrand(){try{const raw=localStorage.getItem(storeKey(LOCAL_BRAND))||(tenant==='principal'?localStorage.getItem(LOCAL_BRAND):null);return JSON.parse(raw||'{}')}catch{return{}}}
@@ -73,7 +74,7 @@ function loginView(){
   }catch(x){$('#loginMsg').textContent=x.message}
  }
 }
-async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><b>GEOFOTO KMZ</b></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status">● Conectando</span></header><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await syncDown();await ensureIdentity();renderAll();setTimeout(syncPendingQueue,900)}
+async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><div class="brand-account"><b>${accountLabel()}</b><small>GeoFoto KMZ</small></div></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">${accountLabel()} · Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status">● Conectando</span></header><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await syncDown();await ensureIdentity();renderAll();setTimeout(syncPendingQueue,900)}
 function show(id,b){if(id!=='capture')stopCamera();document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$('#'+id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#title').textContent={dashboard:'Painel',capture:'Câmera',mapa:'Mapa geral',records:'Registros',export:'Exportar KML/KMZ',settings:'Configurações'}[id];if(id==='mapa')setTimeout(()=>{initMap();map.invalidateSize()},180)}
 async function syncDown(){
  const pending=await pendingAll().catch(()=>[]);
@@ -280,7 +281,7 @@ function renderSettings(){
   </div>
   <div class="card settings-block">
    <div class="settings-title"><span class="settings-icon">☁</span><div><h3>Sincronização / Nuvem</h3><p>Atualiza a lista de pontos e fotos salvos no servidor.</p></div></div>
-   <div class="sync-status"><span>Conta</span><b>${esc(tenant)}</b></div><div class="sync-status"><span>Status</span><b id="syncState">Nuvem conectada</b></div>
+   <div class="sync-status"><span>Conta</span><b>${esc(accountLabel())}</b></div><div class="sync-status"><span>Status</span><b id="syncState">Nuvem conectada</b></div>
    <button class="btn secondary full" id="refresh">Sincronizar registros</button>
   </div>
   <div class="card settings-block">
