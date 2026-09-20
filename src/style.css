@@ -175,3 +175,11 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-ser
 .signup-success{display:grid;gap:10px;margin-top:8px}.signup-success h3{margin:0}.signup-success p{margin:0;color:var(--gf-muted);line-height:1.45}.success-dot{width:42px;height:42px;display:grid;place-items:center;border-radius:50%;background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.22);color:#8ef0b0;font-size:22px;font-weight:900}
 .credential-row{display:grid;gap:4px;padding:11px 12px;border-radius:11px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}.credential-row span{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--gf-muted)}.credential-row b,.credential-row code{font-size:13px;overflow-wrap:anywhere}.credential-row code{color:#b9d6ff}.credential-row.recovery{border-color:rgba(245,158,11,.22);background:rgba(245,158,11,.06)}.signup-success.compact{margin-top:14px}
 @media(max-width:520px){.login-card-hub{padding:22px 18px}.login-brand h1{font-size:25px}.access-intro h2,.access-pane>h2{font-size:22px}.access-choice{padding:14px}}
+
+/* ===== LOGO E BANNER SEPARADOS ===== */
+.app-brand-banner{width:100%;margin:0 0 14px;padding:8px 10px;border:1px solid rgba(255,255,255,.10);border-radius:16px;background:linear-gradient(180deg,rgba(17,31,49,.92),rgba(9,20,34,.92));overflow:hidden;display:flex;justify-content:center;align-items:center}
+.app-brand-banner img{display:block;width:100%;max-width:100%;max-height:128px;object-fit:contain;border-radius:10px}
+.brand-preview-wrap{display:grid;gap:7px;margin:8px 0 14px}.brand-preview-wrap>span{font-size:11px;font-weight:700;color:var(--gf-muted)}
+.brand-preview{display:block;width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.10);background:#fff;object-fit:contain}
+.logo-preview{max-width:300px;max-height:130px;padding:8px}.app-banner-preview{max-height:150px;padding:6px}
+@media(max-width:600px){.app-brand-banner{margin-bottom:10px;padding:6px 8px;border-radius:13px}.app-brand-banner img{max-height:88px}.brand-preview-wrap{margin-bottom:11px}.logo-preview{max-width:240px;max-height:105px}.app-banner-preview{max-height:110px}}

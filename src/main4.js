@@ -2,7 +2,7 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.1'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.2'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false
 const TEMPLATES={
 essential:{name:'Essencial',description:'Dados principais com mapa e identificação.',top:true,panel:.27,map:true,mapWidth:.34,mapHeight:.23,titleScale:.034,textScale:.019},
@@ -18,11 +18,14 @@ L.Icon.Default.mergeOptions({iconRetinaUrl:'https://cdnjs.cloudflare.com/ajax/li
 function storeKey(base){return base+':'+(tenant||'principal')}
 function accountLabel(){if(tenant==='personal')return 'USO PESSOAL';return (tenant||'principal')==='principal'?'MULTIVALE':String(tenant).toLocaleUpperCase('pt-BR')}
 function isPersonalMode(){return role==='personal'||tenant==='personal'}
-function loadCfg(){const d={appName:'GEOFOTO KMZ',company:'',banner:'',primaryColor:'#0f766e',defaultTemplate:'essential',enabledTemplates:['essential','compact','location','corporate','technical','evidence','minimal'],showLogo:true,showMap:true};try{return {...d,...JSON.parse(localStorage.getItem(storeKey(CFG))||'{}')}}catch{return d}}
+function loadCfg(){
+ const d={appName:'GEOFOTO KMZ',company:'',logo:'',banner:'',primaryColor:'#0f766e',defaultTemplate:'essential',enabledTemplates:['essential','compact','location','corporate','technical','evidence','minimal'],showLogo:true,showMap:true};
+ try{const saved=JSON.parse(localStorage.getItem(storeKey(CFG))||'{}'),out={...d,...saved};if(!Object.prototype.hasOwnProperty.call(saved,'logo')&&saved.banner)out.logo=saved.banner;return out}catch{return d}
+}
 function saveCfg(){localStorage.setItem(storeKey(CFG),JSON.stringify(cfg))}
 function loadLocalBrand(){try{const raw=localStorage.getItem(storeKey(LOCAL_BRAND))||(tenant==='principal'?localStorage.getItem(LOCAL_BRAND):null);return JSON.parse(raw||'{}')}catch{return{}}}
 function saveLocalBrand(v){localStorage.setItem(storeKey(LOCAL_BRAND),JSON.stringify(v))}
-function mergeLocalBrand(){const b=loadLocalBrand();if(Object.prototype.hasOwnProperty.call(b,'banner'))cfg.banner=b.banner;if(b.primaryColor)cfg.primaryColor=b.primaryColor}
+function mergeLocalBrand(){const b=loadLocalBrand();if(Object.prototype.hasOwnProperty.call(b,'logo'))cfg.logo=b.logo;if(Object.prototype.hasOwnProperty.call(b,'banner'))cfg.banner=b.banner;if(b.primaryColor)cfg.primaryColor=b.primaryColor}
 async function optimizeBrandImage(file){
  if(!file)return '';
  if(file.size>12*1024*1024)throw Error('A imagem é muito grande. Use um arquivo de até 12 MB.');
@@ -156,14 +159,14 @@ function loginView(){
  };
 }
 
-async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><div class="brand-account"><b>${accountLabel()}</b><small>GeoFoto KMZ</small></div></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">${accountLabel()} · Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status">● Conectando</span></header><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await syncDown();await ensureIdentity();renderAll();setTimeout(syncPendingQueue,900)}
+async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><div class="brand-account"><b>${accountLabel()}</b><small>GeoFoto KMZ</small></div></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">${accountLabel()} · Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status">● Conectando</span></header><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await syncDown();await ensureIdentity();renderAll();setTimeout(syncPendingQueue,900)}
 function show(id,b){if(id!=='capture')stopCamera();document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$('#'+id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#title').textContent={dashboard:'Painel',capture:'Câmera',mapa:'Mapa geral',records:'Registros',export:'Exportar KML/KMZ',settings:'Configurações'}[id];if(id==='mapa')setTimeout(()=>{initMap();map.invalidateSize()},180)}
 async function syncDown(){
  const pending=await pendingAll().catch(()=>[]);
  if(isPersonalMode()){const legacyRaw=localStorage.getItem(storeKey(LOCAL))||'[]',legacy=JSON.parse(legacyRaw||'[]');points=mergePoints(legacy,pending);await updatePendingStatus();return}
  try{
   const cloud=await api('/points');points=mergePoints(cloud,pending);
-  try{cfg={...cfg,...await api('/config')};mergeLocalBrand();saveCfg()}catch{mergeLocalBrand()}
+  try{const remoteCfg=await api('/config');cfg={...cfg,...remoteCfg};if(!Object.prototype.hasOwnProperty.call(remoteCfg,'logo')&&remoteCfg.banner&&!cfg.logo)cfg.logo=remoteCfg.banner;mergeLocalBrand();saveCfg()}catch{mergeLocalBrand()}
   await updatePendingStatus()
  }catch{
   const legacyRaw=localStorage.getItem(storeKey(LOCAL))||(tenant==='principal'?localStorage.getItem(LOCAL):null),legacy=JSON.parse(legacyRaw||'[]');
@@ -184,7 +187,14 @@ async function syncPendingQueue(){
  if(sent){renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}
  offlineSyncing=false;return sent
 }
-function renderAll(){renderDashboard();renderCapture();renderRecords();renderExport();renderSettings()}
+function renderAll(){renderBranding();renderDashboard();renderCapture();renderRecords();renderExport();renderSettings()}
+function renderBranding(){
+ const host=$('#appBrandBanner');if(!host)return;host.innerHTML='';
+ if(!cfg.banner){host.classList.add('hidden');return}
+ const img=document.createElement('img');img.alt='Banner da empresa';img.src=cfg.banner;
+ img.onload=()=>host.classList.remove('hidden');img.onerror=()=>host.classList.add('hidden');
+ host.appendChild(img)
+}
 function renderDashboard(){const hoje=new Date().toLocaleDateString('pt-BR'),n=points.filter(p=>new Date(p.time).toLocaleDateString('pt-BR')===hoje).length;$('#dashboard').innerHTML=`<div class="cards"><div class="card"><span class="muted">Total de pontos</span><div class="metric">${points.length}</div></div><div class="card"><span class="muted">Fotos hoje</span><div class="metric">${n}</div></div><div class="card"><span class="muted">Com endereço</span><div class="metric">${points.filter(p=>p.address).length}</div></div><div class="card"><span class="muted">KMZ central</span><div class="metric">OK</div></div></div><div class="grid2"><div class="card"><h3>Fluxo automático</h3><p class="muted">Primeiro informe a identificação do ponto. Depois libere câmera e GPS; ao tirar a foto, o registro é salvo automaticamente no mapa e no KMZ.</p><button class="btn primary" id="quick">Abrir câmera</button></div><div class="card"><h3>Últimos registros</h3>${points.slice(-4).reverse().map(p=>`<p><b>${esc(p.name)}</b><br><span class="muted">${fmt(p.time)} · ${esc(p.city||'')}</span></p>`).join('')||'<p class="muted">Nenhum registro.</p>'}</div></div>`;$('#quick').onclick=()=>document.querySelector('[data-page="capture"]').click()}
 function renderCapture(){
  raw='';photo='';geo=null;saving=false;savedPhotoKey='';
@@ -250,7 +260,7 @@ async function annotate(){
    const headerName=(cfg.appName||'GEOFOTO KMZ').trim().toLocaleUpperCase('pt-BR'),pillW=Math.round(c.width*.31),pillH=Math.round(c.height*.062);
    x.fillStyle='rgba(7,18,31,.78)';if(x.roundRect){x.beginPath();x.roundRect(pad,pad,pillW,pillH,r*.55);x.fill()}else x.fillRect(pad,pad,pillW,pillH);
    x.fillStyle='#fff';x.font='800 '+Math.max(24,Math.round(c.width*.028))+'px Arial';x.fillText(headerName,pad+Math.round(pad*.55),pad+Math.round(pillH*.66),pillW-pad);
-   if(cfg.banner){try{const bi=await loadImg(cfg.banner),boxW=Math.round(c.width*.24),boxH=Math.round(c.height*.105),bx=c.width-pad-boxW,by=pad,ratio=Math.min((boxW-pad)/bi.width,(boxH-pad*.6)/bi.height),dw=bi.width*ratio,dh=bi.height*ratio;
+   if(cfg.logo){try{const bi=await loadImg(cfg.logo),boxW=Math.round(c.width*.24),boxH=Math.round(c.height*.105),bx=c.width-pad-boxW,by=pad,ratio=Math.min((boxW-pad)/bi.width,(boxH-pad*.6)/bi.height),dw=bi.width*ratio,dh=bi.height*ratio;
     x.fillStyle='rgba(255,255,255,.86)';if(x.roundRect){x.beginPath();x.roundRect(bx,by,boxW,boxH,r*.55);x.fill()}else x.fillRect(bx,by,boxW,boxH);
     x.drawImage(bi,bx+(boxW-dw)/2,by+(boxH-dh)/2,dw,dh)}catch{}}
  }
@@ -353,9 +363,9 @@ function renderSettings(){
   <div class="card settings-block">
    <div class="settings-title"><span class="settings-icon">🎨</span><div><h3>Aparência</h3><p>Cor e marca exibidas no aplicativo e nas fotos.</p></div></div>
    <label class="field">Cor principal<input id="primaryColor" type="color" value="${attr(cfg.primaryColor||'#0f766e')}"></label>
-   <label class="field">Logo / banner (opcional)<input id="bannerFile" type="file" accept="image/*"></label>
-   ${cfg.banner?`<img class="banner-preview" src="${cfg.banner}">`:''}
-   <div class="actions"><button class="btn primary" id="saveAppearance">Salvar aparência</button><button class="btn secondary" id="clearCfg">Remover logo</button></div>
+   <label class="field">Logo na foto (opcional)<input id="logoFile" type="file" accept="image/*"></label>\n   <label class="field">Banner do aplicativo (opcional)<input id="bannerFile" type="file" accept="image/*"></label>
+   ${cfg.logo?`<div class="brand-preview-wrap"><span>Prévia do logo</span><img class="brand-preview logo-preview" src="${cfg.logo}"></div>`:''}\n   ${cfg.banner?`<div class="brand-preview-wrap"><span>Prévia do banner</span><img class="brand-preview app-banner-preview" src="${cfg.banner}"></div>`:''}
+   <div class="actions"><button class="btn primary" id="saveAppearance">Salvar aparência</button><button class="btn secondary" id="clearLogo">Remover logo</button><button class="btn secondary" id="clearBanner">Remover banner</button></div>
   </div>
   <div class="card settings-block settings-wide">
    <div class="settings-title"><span class="settings-icon">📷</span><div><h3>Modelos de foto</h3><p>Escolha quais layouts ficarão disponíveis para o técnico.</p></div></div>
@@ -381,8 +391,9 @@ function renderSettings(){
  </div>`;
  const persist=async()=>{saveCfg();if(isPersonalMode())return;try{await api('/config',{method:'POST',body:JSON.stringify(cfg)})}catch(e){if(role==='admin')alert(e.message)}};
  $('#saveIdentity').onclick=()=>{const id=$('#identityName').value.trim();if(id.length<2){alert('Informe o nome do técnico/usuário.');$('#identityName').focus();return}identity=id;sessionStorage.setItem(IDENTITY,identity);alert('Identidade salva.')};
- $('#saveAppearance').onclick=async()=>{cfg.primaryColor=$('#primaryColor').value;const f=$('#bannerFile').files[0];if(f)cfg.banner=await fileData(f);await persist();alert('Aparência salva.')};
- $('#clearCfg').onclick=async()=>{cfg.banner='';await persist();renderSettings()};
+ $('#saveAppearance').onclick=async()=>{cfg.primaryColor=$('#primaryColor').value;const lf=$('#logoFile').files[0],bf=$('#bannerFile').files[0];if(lf)cfg.logo=await optimizeBrandImage(lf);if(bf)cfg.banner=await optimizeBrandImage(bf);saveLocalBrand({logo:cfg.logo,banner:cfg.banner,primaryColor:cfg.primaryColor});await persist();renderBranding();renderSettings();alert('Aparência salva.')};
+ $('#clearLogo').onclick=async()=>{cfg.logo='';saveLocalBrand({logo:'',banner:cfg.banner,primaryColor:cfg.primaryColor});await persist();renderSettings()};
+ $('#clearBanner').onclick=async()=>{cfg.banner='';saveLocalBrand({logo:cfg.logo,banner:'',primaryColor:cfg.primaryColor});await persist();renderBranding();renderSettings()};
  $('#saveTemplates').onclick=async()=>{const ids=[...document.querySelectorAll('[data-template]:checked')].map(x=>x.dataset.template);cfg.enabledTemplates=ids.length?ids:['essential'];cfg.defaultTemplate=cfg.enabledTemplates.includes($('#defaultTemplate').value)?$('#defaultTemplate').value:cfg.enabledTemplates[0];await persist();alert('Modelos atualizados.')};
  $('#refresh').onclick=async()=>{const b=$('#refresh'),st=$('#syncState');b.disabled=true;b.textContent=isPersonalMode()?'Atualizando...':'Sincronizando...';st.textContent=isPersonalMode()?'Atualizando':'Sincronizando';try{await syncDown();renderAll();if(!isPersonalMode())alert('Registros sincronizados com a nuvem.')}catch{st.textContent='Falha na atualização'}finally{b.disabled=false;b.textContent=isPersonalMode()?'Atualizar histórico':'Sincronizar registros'}};
  $('#checkUpdate').onclick=async()=>{const st=$('#appUpdateState');st.textContent='Verificando...';const found=await checkForUpdate(true);if(!found)st.textContent='Aplicativo atualizado'};
