@@ -25,3 +25,13 @@ npx wrangler deploy
 
 Endereço de produção:
 https://geofoto-kmz.geofotokmz.workers.dev
+
+## Atualizações do aplicativo
+A partir da versão 1.1.0, o GeoFoto KMZ possui atualização assistida de PWA:
+- o aplicativo verifica novas versões ao abrir e periodicamente;
+- quando uma versão nova estiver pronta, exibe **Atualizar agora**;
+- a atualização não apaga registros, fotos, D1 ou R2;
+- a versão instalada aparece em **Configurações > Aplicativo**;
+- também existe o botão **Verificar atualização**.
+
+Em cada nova publicação devem ser atualizados em conjunto o `APP_VERSION`, `public/version.json` e a versão do cache em `public/sw.js`.
