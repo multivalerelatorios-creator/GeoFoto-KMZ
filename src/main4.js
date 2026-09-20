@@ -2,7 +2,7 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.2'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.3'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false
 const TEMPLATES={
 essential:{name:'Essencial',description:'Dados principais com mapa e identificação.',top:true,panel:.27,map:true,mapWidth:.34,mapHeight:.23,titleScale:.034,textScale:.019},
@@ -81,7 +81,7 @@ function loginView(){
   <div id="accessHome" class="access-pane">
    <div class="access-intro"><span>COMEÇAR</span><h2>Como deseja usar o aplicativo?</h2><p>Escolha uma opção. Você pode trabalhar com uma empresa ou usar o GeoFoto KMZ somente neste aparelho.</p></div>
    <button class="access-choice" id="existingCompany" type="button"><b>🏢 Já possuo acesso de uma empresa</b><span>Entrar com código da empresa, usuário e senha.</span></button>
-   <button class="access-choice" id="newCompany" type="button"><b>＋ Cadastrar minha empresa</b><span>Cria a conta e gera acesso de administrador e colaborador.</span></button>
+   <button class="access-choice" id="newCompany" type="button"><b>＋ Cadastrar minha empresa</b><span>Crie a conta e gere acessos de administrador e colaborador.</span></button>
    <button class="access-choice personal" id="personalUse" type="button"><b>👤 Usar para uso próprio</b><span>Sem cadastro e sem vínculo com empresa. Os dados ficam neste aparelho.</span></button>
   </div>
   <div id="companyLogin" class="access-pane hidden">
