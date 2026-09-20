@@ -2,7 +2,7 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.2.4'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.2.5'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false
 const TEMPLATES={
 essential:{name:'Essencial',description:'Dados principais com mapa e identificação.',top:true,panel:.27,map:true,mapWidth:.34,mapHeight:.23,titleScale:.034,textScale:.019},
@@ -318,16 +318,25 @@ async function checkForUpdate(manual=false){
   return false
  }catch{if(manual)alert('Não foi possível verificar atualizações agora.');return false}
 }
+let lastUpdateCheck=0;
+async function checkUpdateIfDue(force=false){
+ const now=Date.now();if(!force&&now-lastUpdateCheck<30000)return false;lastUpdateCheck=now;
+ return checkForUpdate(false)
+}
 async function initUpdater(){
  if(!('serviceWorker' in navigator))return;
  try{
-  swRegistration=await navigator.serviceWorker.register('/sw.js');
+  swRegistration=await navigator.serviceWorker.register('/sw.js',{updateViaCache:'none'});
   navigator.serviceWorker.addEventListener('controllerchange',()=>{if(updateReloading)return;updateReloading=true;location.reload()});
-  await checkForUpdate(false);
-  setInterval(()=>checkForUpdate(false),60*60*1000)
+  await swRegistration.update().catch(()=>{});
+  await checkUpdateIfDue(true);
+  setInterval(()=>checkUpdateIfDue(true),2*60*1000)
  }catch{}
 }
 window.addEventListener('load',initUpdater);
+window.addEventListener('focus',()=>checkUpdateIfDue(false));
+window.addEventListener('pageshow',()=>checkUpdateIfDue(false));
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkUpdateIfDue(false)});
 window.addEventListener('online',()=>syncPendingQueue().catch(()=>{}));
 window.addEventListener('offline',()=>updatePendingStatus());
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&navigator.onLine)syncPendingQueue().catch(()=>{})});
