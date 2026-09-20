@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "geofoto-kmz",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-17",
+  "assets": {"directory":"./dist","binding":"ASSETS"},
+  "vars": {
+    "GEOFOTO_USER": "geofoto",
+    "GEOFOTO_ADMIN_USER": "admin"
+  },
+  "d1_databases": [{
+    "binding":"DB",
+    "database_name":"geofoto-kmz-db",
+    "database_id":"478f2de3-a658-40bf-8743-cece5d1096d0"
+  }],
+  "r2_buckets": [{
+    "binding":"PHOTOS",
+    "bucket_name":"geofoto-kmz-fotos"
+  }]
+}

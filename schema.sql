@@ -1,0 +1,17 @@
+CREATE TABLE IF NOT EXISTS points (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  lat REAL NOT NULL,
+  lng REAL NOT NULL,
+  accuracy REAL NOT NULL DEFAULT 0,
+  time TEXT NOT NULL,
+  city TEXT NOT NULL DEFAULT '',
+  address TEXT NOT NULL DEFAULT '',
+  photo_key TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_points_time ON points(time);
+CREATE TABLE IF NOT EXISTS app_config (
+  id INTEGER PRIMARY KEY,
+  data TEXT NOT NULL DEFAULT '{}'
+);

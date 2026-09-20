@@ -1,0 +1,99 @@
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:#f3f6f9;color:#172333}button,input,textarea{font:inherit}.hidden{display:none!important}.login{min-height:100vh;display:grid;place-items:center;background:linear-gradient(145deg,#071421,#18364c)}.login-card{width:min(420px,92vw);background:#fff;padding:34px;border-radius:22px;box-shadow:0 25px 70px #0005}.brand{display:flex;gap:12px;align-items:center}.logo{width:48px;height:48px;border-radius:14px;background:#18364c;color:#fff;display:grid;place-items:center;font-size:25px}.login-card h1{margin:0}.muted{color:#6e7c8b}.small{font-size:13px}.field{display:grid;gap:6px;margin:14px 0}.field input,.field textarea{border:1px solid #d7e0e8;border-radius:11px;padding:12px;background:#fff}.btn{border:0;border-radius:11px;padding:12px 16px;cursor:pointer}.primary{background:#18364c;color:#fff}.secondary{background:#e8eef3;color:#18364c}.full{width:100%}.shell{display:grid;grid-template-columns:240px 1fr;min-height:100vh}.side{background:#0b1726;color:#fff;padding:22px 14px}.side .brand{padding:0 8px 20px}.nav button{width:100%;text-align:left;background:transparent;color:#b8c6d2;border:0;padding:12px;border-radius:10px;margin:3px 0;cursor:pointer}.nav button.active,.nav button:hover{background:#18364c;color:#fff}.main{padding:18px}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.status{font-size:13px;background:#e4f6ec;color:#167344;padding:7px 10px;border-radius:20px;white-space:nowrap}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.card{background:#fff;border:1px solid #e1e7ec;border-radius:16px;padding:16px;box-shadow:0 5px 20px #1b2a3a0b}.metric{font-size:30px;font-weight:700;margin-top:6px}.grid2{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;margin-top:16px}#map{height:520px;border-radius:14px}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions .btn{flex:1 1 150px}.capture{display:grid;gap:10px}.camera-large{width:100%;min-height:55vh;max-height:68vh;object-fit:cover;border-radius:14px;background:#071421}.banner-preview,.record-photo{width:100%;border-radius:12px;object-fit:cover}.record-photo{max-height:340px;margin:10px 0}.badge{padding:4px 8px;border-radius:20px;background:#edf4fa;font-size:12px}.section{display:none}.section.active{display:block}.records-list{display:grid;gap:12px}.record-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}ul{padding-left:20px}li{margin:6px 0}
+@media(max-width:850px){.shell{grid-template-columns:1fr}.side{position:sticky;top:0;z-index:20;padding:10px;border-bottom:1px solid #19324a}.side .brand{padding:4px 8px 10px}.nav{display:flex;overflow:auto;gap:6px;padding-bottom:4px}.nav button{white-space:nowrap;width:auto;min-width:max-content;padding:10px 12px;margin:0}.main{padding:12px;padding-bottom:80px}.top{align-items:flex-start;flex-direction:column}.cards,.grid2{grid-template-columns:1fr}.card{padding:14px}.camera-large{min-height:44vh;max-height:58vh}.status{align-self:flex-end}.record-photo{max-height:270px}}
+
+.field select{border:1px solid #d7e0e8;border-radius:11px;padding:12px;background:#fff;font:inherit;color:#172333}.template-list{display:grid;gap:8px;margin:12px 0}.template-option{display:flex;gap:10px;align-items:flex-start;border:1px solid #e1e7ec;border-radius:12px;padding:11px;background:#f9fbfc;cursor:pointer}.template-option input{margin-top:3px}.template-option span{display:grid;gap:3px}.template-option small{color:#6e7c8b;line-height:1.3}.template-preview{border:1px solid #e1e7ec;border-radius:14px;padding:14px;background:#f7fafc;margin:8px 0 14px}.template-preview p{margin:6px 0 0}input[type=color]{min-height:44px;padding:5px!important;cursor:pointer}
+/* ===== TEMA PREMIUM 2026-09-17 ===== */
+:root{
+ --gf-bg:#08111d;--gf-bg2:#0d1b2a;--gf-card:rgba(12,24,40,.80);
+ --gf-card2:rgba(7,16,28,.74);--gf-border:rgba(255,255,255,.09);
+ --gf-text:#f8fbff;--gf-muted:rgba(226,235,244,.72);
+ --gf-accent:#2563eb;--gf-accent-soft:rgba(37,99,235,.14);
+}
+body{
+ background:
+ radial-gradient(circle at 15% 10%,rgba(37,99,235,.12),transparent 28%),
+ linear-gradient(145deg,var(--gf-bg),var(--gf-bg2));
+ color:var(--gf-text);
+}
+.shell{background:transparent}
+.side{
+ background:linear-gradient(180deg,rgba(7,17,29,.98),rgba(10,24,40,.96));
+ border-right:1px solid var(--gf-border);
+ box-shadow:14px 0 36px rgba(0,0,0,.18);
+}
+.side .brand{font-size:15px;letter-spacing:.2px}
+.logo{
+ background:linear-gradient(145deg,#183a63,#2563eb);
+ box-shadow:0 8px 22px rgba(37,99,235,.22),inset 0 1px 0 rgba(255,255,255,.18);
+}
+
+.main{background:transparent}
+.top{
+ padding:14px 18px;margin-bottom:18px;border:1px solid var(--gf-border);
+ border-radius:18px;background:linear-gradient(180deg,rgba(12,24,40,.72),rgba(7,16,28,.64));
+ backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+ box-shadow:0 10px 30px rgba(0,0,0,.20);
+}
+.top h2{margin:0 0 4px;font-size:24px;letter-spacing:.1px}
+.muted{color:var(--gf-muted)}
+.card,.template-preview{
+ background:linear-gradient(180deg,var(--gf-card),var(--gf-card2));
+ border:1px solid var(--gf-border);color:var(--gf-text);
+ box-shadow:0 12px 34px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.04);
+ backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+}
+.card{border-radius:20px}
+.metric{color:#fff;text-shadow:0 4px 20px rgba(0,0,0,.18)}
+.nav button{color:rgba(226,235,244,.74);transition:.18s ease}
+.nav button.active,.nav button:hover{
+ background:linear-gradient(90deg,rgba(37,99,235,.24),rgba(37,99,235,.10));
+ color:#fff;box-shadow:inset 3px 0 0 #3b82f6;
+}
+
+.field input,.field textarea,.field select{
+ background:rgba(255,255,255,.055);color:var(--gf-text);
+ border:1px solid rgba(255,255,255,.10);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
+}
+.field input::placeholder,.field textarea::placeholder{color:rgba(226,235,244,.42)}
+.field select option{background:#0d1b2a;color:#fff}
+.btn{font-weight:650;transition:transform .16s ease,box-shadow .16s ease,background .16s ease}
+.btn:hover{transform:translateY(-1px)}
+.primary{
+ background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;
+ box-shadow:0 9px 24px rgba(37,99,235,.22);
+}
+.secondary{
+ background:rgba(255,255,255,.07);color:#eef5fb;
+ border:1px solid rgba(255,255,255,.09);
+}
+.status{background:rgba(34,197,94,.13);color:#8ef0b0;border:1px solid rgba(34,197,94,.18)}
+.badge{background:rgba(37,99,235,.12);color:#b9d4ff;border:1px solid rgba(37,99,235,.16)}
+#map{border-radius:17px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.camera-large{border-radius:18px;border:1px solid rgba(255,255,255,.08);box-shadow:0 10px 30px rgba(0,0,0,.22)}
+.template-option{
+ background:rgba(255,255,255,.045);border-color:rgba(255,255,255,.08);color:var(--gf-text);
+}
+.login{background:radial-gradient(circle at 20% 10%,rgba(37,99,235,.16),transparent 32%),linear-gradient(145deg,#07111d,#10263c)}
+
+.login-card{
+ background:linear-gradient(180deg,rgba(12,24,40,.90),rgba(7,16,28,.88));
+ border:1px solid rgba(255,255,255,.10);color:var(--gf-text);
+ box-shadow:0 30px 80px rgba(0,0,0,.38);backdrop-filter:blur(16px);
+}
+.leaflet-control-zoom a,.leaflet-control-attribution{
+ background:rgba(9,21,36,.88)!important;color:#eaf2fb!important;
+ border-color:rgba(255,255,255,.10)!important;
+}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{
+ background:#0c1828;color:#f7fbff;
+}
+@media(max-width:850px){
+ .side{border-right:0;border-bottom:1px solid var(--gf-border)}
+ .top{padding:12px 14px;border-radius:16px}
+ .card{border-radius:17px}
+}
+
+/* ===== REFINO GEOFOTO 2026-09-19 ===== */
+.side .brand b,.login-card h1{font-weight:850;letter-spacing:.075em}
+#pointName{text-transform:uppercase;font-weight:700;letter-spacing:.025em}
