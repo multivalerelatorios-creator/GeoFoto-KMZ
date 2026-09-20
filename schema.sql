@@ -57,3 +57,17 @@ CREATE TABLE IF NOT EXISTS registration_log (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_registration_ip_time ON registration_log(ip_hash,created_at);
+
+CREATE TABLE IF NOT EXISTS master_users (
+  username TEXT PRIMARY KEY,
+  password_hash TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS master_sessions (
+  token TEXT PRIMARY KEY,
+  username TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_master_sessions_expiry ON master_sessions(expires_at);

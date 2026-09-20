@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#08111f">
+  <title>GeoFoto KMZ · Master</title>
+  <link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/master.css">
+</head>
+<body>
+  <div class="bg"></div>
+  <main id="login" class="login-wrap">
+    <form id="loginForm" class="login-card">
+      <div class="mark">GF</div>
+      <span class="eyebrow">ÁREA DO PROPRIETÁRIO</span>
+      <h1>GeoFoto KMZ Master</h1>
+      <p>Controle central de empresas e acesso ao aplicativo.</p>
+      <label>Usuário Master<input id="user" autocomplete="username" required></label>
+      <label>Senha<input id="pass" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">Entrar no painel</button>
+      <div id="loginMsg" class="msg"></div>
+      <a href="/" class="back">Voltar ao GeoFoto KMZ</a>
+    </form>
+  </main>
+  <main id="panel" class="panel hidden">
+    <header class="top">
+      <div class="brand"><div class="mark small">GF</div><div><b>GeoFoto KMZ</b><span>Painel Master</span></div></div>
+      <div class="top-actions"><button id="refresh" class="ghost">Atualizar</button><button id="logout" class="ghost danger">Sair</button></div>
+    </header>
+    <section class="hero">
+      <div><span class="eyebrow">CONTROLE DO PROPRIETÁRIO</span><h1>Empresas</h1><p>Visualize e controle quem pode utilizar o GeoFoto KMZ.</p></div>
+      <div class="search"><input id="search" placeholder="Buscar empresa ou código…"></div>
+    </section>
+    <section class="metrics">
+      <article><span>Total</span><b id="mTotal">0</b></article>
+      <article><span>Ativas</span><b id="mActive">0</b></article>
+      <article><span>Bloqueadas</span><b id="mBlocked">0</b></article>
+      <article><span>Pontos</span><b id="mPoints">0</b></article>
+    </section>
+    <section class="card">
+      <div class="card-head"><div><h2>Empresas cadastradas</h2><p>O bloqueio encerra as sessões ativas da empresa.</p></div><span id="count" class="pill">0</span></div>
+      <div id="companies" class="companies"></div>
+      <div id="empty" class="empty hidden">Nenhuma empresa cadastrada.</div>
+    </section>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script src="/master.js"></script>
+</body>
+</html>
