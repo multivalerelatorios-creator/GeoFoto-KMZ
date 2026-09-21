@@ -2,7 +2,7 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.3'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.4'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false
 const TEMPLATES={
 essential:{name:'Essencial',description:'Dados principais com mapa e identificação.',top:true,panel:.27,map:true,mapWidth:.34,mapHeight:.23,titleScale:.034,textScale:.019},
@@ -18,6 +18,24 @@ L.Icon.Default.mergeOptions({iconRetinaUrl:'https://cdnjs.cloudflare.com/ajax/li
 function storeKey(base){return base+':'+(tenant||'principal')}
 function accountLabel(){if(tenant==='personal')return 'USO PESSOAL';return (tenant||'principal')==='principal'?'MULTIVALE':String(tenant).toLocaleUpperCase('pt-BR')}
 function isPersonalMode(){return role==='personal'||tenant==='personal'}
+function cloudSyncKey(){return 'gf_cloud_sync:'+String(tenant||'principal')}
+function cloudCountKey(){return 'gf_cloud_count:'+String(tenant||'principal')}
+function cloudTimeLabel(ts){if(!ts)return 'Ainda não sincronizado';return new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short'}).format(new Date(ts))}
+function paintCloudDemo(mode=''){
+ const top=$('#netStatus'),bar=$('#cloudDemoBar'),state=$('#cloudDemoState'),records=$('#cloudDemoRecords'),pending=$('#cloudDemoPending'),last=$('#cloudDemoLast');
+ let label='☁ Conectando',kind='connecting';
+ if(isPersonalMode()){label='☁ Uso pessoal · dados neste aparelho';kind='local'}
+ else if(mode==='sync'){label='☁ Sincronizando'+(cloudPending?' · '+cloudPending+' pendente'+(cloudPending===1?'':'s'):'');kind='syncing'}
+ else if(!navigator.onLine||!cloudConnected){label='☁ Offline'+(cloudPending?' · '+cloudPending+' pendente'+(cloudPending===1?'':'s'):'');kind='offline'}
+ else if(cloudPending){label='☁ Nuvem conectada · '+cloudPending+' pendente'+(cloudPending===1?'':'s');kind='pending'}
+ else{label='☁ Nuvem conectada';kind='online'}
+ if(top){top.textContent=label;top.className='status cloud-indicator '+kind}
+ if(bar){bar.className='cloud-demo-bar '+kind;const b=bar.querySelector('[data-cloud-label]');if(b)b.textContent=label}
+ if(state)state.textContent=isPersonalMode()?'Somente neste aparelho':(kind==='online'?'Nuvem conectada':kind==='syncing'?'Sincronizando':kind==='pending'?'Conectada com pendências':'Offline');
+ if(records)records.textContent=isPersonalMode()?'—':String(cloudRecords);
+ if(pending)pending.textContent=String(cloudPending);
+ if(last)last.textContent=isPersonalMode()?'Não se aplica':cloudTimeLabel(lastCloudSync)
+}
 function loadCfg(){
  const d={appName:'GEOFOTO KMZ',company:'',logo:'',banner:'',primaryColor:'#0f766e',defaultTemplate:'essential',enabledTemplates:['essential','compact','location','corporate','technical','evidence','minimal'],showLogo:true,showMap:true};
  try{const saved=JSON.parse(localStorage.getItem(storeKey(CFG))||'{}'),out={...d,...saved};if(!Object.prototype.hasOwnProperty.call(saved,'logo')&&saved.banner)out.logo=saved.banner;return out}catch{return d}
@@ -41,12 +59,9 @@ async function pendingDelete(id){const db=await offlineDb();return new Promise((
 async function requestPersistentStorage(){try{if(navigator.storage?.persist)await navigator.storage.persist()}catch{}}
 function mergePoints(cloud,pending){const m=new Map();for(const p of cloud||[])m.set(p.id,p);for(const p of pending||[])if(!m.has(p.id))m.set(p.id,{...p,_pending:true});return [...m.values()].sort((a,b)=>String(a.time).localeCompare(String(b.time)))}
 async function updatePendingStatus(mode=''){
- const n=(await pendingAll().catch(()=>[])).length,el=$('#netStatus');if(!el)return n;
- if(isPersonalMode()){el.textContent='● Uso pessoal · salvo no aparelho';return n}
- if(mode==='sync')el.textContent='● Sincronizando '+n+' pendente'+(n===1?'':'s');
- else if(!navigator.onLine)el.textContent='● Offline'+(n?' · '+n+' pendente'+(n===1?'':'s'):'');
- else el.textContent=n?'● Nuvem · '+n+' pendente'+(n===1?'':'s'):'● Nuvem conectada';
- return n
+ cloudPending=(await pendingAll().catch(()=>[])).length;
+ paintCloudDemo(mode);
+ return cloudPending
 }
 async function api(path,opt={}){const h={'Content-Type':'application/json',...(opt.headers||{})};if(token)h.Authorization=`Bearer ${token}`;const r=await fetch('/api'+path,{...opt,headers:h});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'Falha na comunicação');return d}
 async function apiBlob(path){const h={};if(token)h.Authorization=`Bearer ${token}`;const url=path.startsWith('/api/')?path:'/api'+path;const r=await fetch(url,{headers:h});if(!r.ok)throw Error('Falha ao carregar foto');return r.blob()}
@@ -159,16 +174,17 @@ function loginView(){
  };
 }
 
-async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><div class="brand-account"><b>${accountLabel()}</b><small>GeoFoto KMZ</small></div></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">${accountLabel()} · Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status">● Conectando</span></header><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await syncDown();await ensureIdentity();renderAll();setTimeout(syncPendingQueue,900)}
+async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><div class="brand-account"><b>${accountLabel()}</b><small>GeoFoto KMZ</small></div></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">${accountLabel()} · Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status cloud-indicator connecting">☁ Conectando</span></header><div id="cloudDemoBar" class="cloud-demo-bar connecting"><span class="cloud-demo-icon">☁</span><div><b data-cloud-label>☁ Conectando</b><small>Registros seguros na nuvem quando conectado</small></div><span class="cloud-demo-pulse"></span></div><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await syncDown();await ensureIdentity();renderAll();setTimeout(syncPendingQueue,900)}
 function show(id,b){if(id!=='capture')stopCamera();document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$('#'+id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#title').textContent={dashboard:'Painel',capture:'Câmera',mapa:'Mapa geral',records:'Registros',export:'Exportar KML/KMZ',settings:'Configurações'}[id];if(id==='mapa')setTimeout(()=>{initMap();map.invalidateSize()},180)}
 async function syncDown(){
  const pending=await pendingAll().catch(()=>[]);
- if(isPersonalMode()){const legacyRaw=localStorage.getItem(storeKey(LOCAL))||'[]',legacy=JSON.parse(legacyRaw||'[]');points=mergePoints(legacy,pending);await updatePendingStatus();return}
+ if(isPersonalMode()){cloudConnected=false;cloudRecords=0;lastCloudSync=0;const legacyRaw=localStorage.getItem(storeKey(LOCAL))||'[]',legacy=JSON.parse(legacyRaw||'[]');points=mergePoints(legacy,pending);await updatePendingStatus();return}
  try{
-  const cloud=await api('/points');points=mergePoints(cloud,pending);
+  const cloud=await api('/points');cloudConnected=true;cloudRecords=cloud.length;lastCloudSync=Date.now();localStorage.setItem(cloudSyncKey(),String(lastCloudSync));localStorage.setItem(cloudCountKey(),String(cloudRecords));points=mergePoints(cloud,pending);
   try{const remoteCfg=await api('/config');cfg={...cfg,...remoteCfg};if(!Object.prototype.hasOwnProperty.call(remoteCfg,'logo')&&remoteCfg.banner&&!cfg.logo)cfg.logo=remoteCfg.banner;mergeLocalBrand();saveCfg()}catch{mergeLocalBrand()}
   await updatePendingStatus()
  }catch{
+  cloudConnected=false;lastCloudSync=Number(localStorage.getItem(cloudSyncKey())||0);cloudRecords=Number(localStorage.getItem(cloudCountKey())||0);
   const legacyRaw=localStorage.getItem(storeKey(LOCAL))||(tenant==='principal'?localStorage.getItem(LOCAL):null),legacy=JSON.parse(legacyRaw||'[]');
   points=mergePoints(legacy,pending);
   await updatePendingStatus()
@@ -375,8 +391,11 @@ function renderSettings(){
   </div>
   <div class="card settings-block">
    <div class="settings-title"><span class="settings-icon">☁</span><div><h3>Sincronização / Nuvem</h3><p>Atualiza a lista de pontos e fotos salvos no servidor.</p></div></div>
-   <div class="sync-status"><span>Conta</span><b>${esc(accountLabel())}</b></div><div class="sync-status"><span>Status</span><b id="syncState">Nuvem conectada</b></div>
-   <button class="btn secondary full" id="refresh">Sincronizar registros</button>
+   <div class="cloud-panel">
+    <div class="cloud-panel-head"><span class="cloud-panel-icon">☁</span><div><b id="cloudDemoState">${isPersonalMode()?'Somente neste aparelho':(cloudConnected?(cloudPending?'Conectada com pendências':'Nuvem conectada'):'Offline')}</b><small>${esc(accountLabel())}</small></div></div>
+    <div class="cloud-stats"><div><span>Na nuvem</span><b id="cloudDemoRecords">${isPersonalMode()?'—':cloudRecords}</b></div><div><span>Pendentes</span><b id="cloudDemoPending">${cloudPending}</b></div><div><span>Última sincronização</span><b id="cloudDemoLast">${isPersonalMode()?'Não se aplica':cloudTimeLabel(lastCloudSync)}</b></div></div>
+   </div>
+   <button class="btn secondary full" id="refresh">${isPersonalMode()?'Atualizar histórico':'Sincronizar agora'}</button>
   </div>
   <div class="card settings-block">
    <div class="settings-title"><span class="settings-icon">↻</span><div><h3>Versão do aplicativo</h3><p>Atualiza o GeoFoto KMZ sem reinstalar e sem apagar registros.</p></div></div>
@@ -395,7 +414,7 @@ function renderSettings(){
  $('#clearLogo').onclick=async()=>{cfg.logo='';saveLocalBrand({logo:'',banner:cfg.banner,primaryColor:cfg.primaryColor});await persist();renderSettings()};
  $('#clearBanner').onclick=async()=>{cfg.banner='';saveLocalBrand({logo:cfg.logo,banner:'',primaryColor:cfg.primaryColor});await persist();renderBranding();renderSettings()};
  $('#saveTemplates').onclick=async()=>{const ids=[...document.querySelectorAll('[data-template]:checked')].map(x=>x.dataset.template);cfg.enabledTemplates=ids.length?ids:['essential'];cfg.defaultTemplate=cfg.enabledTemplates.includes($('#defaultTemplate').value)?$('#defaultTemplate').value:cfg.enabledTemplates[0];await persist();alert('Modelos atualizados.')};
- $('#refresh').onclick=async()=>{const b=$('#refresh'),st=$('#syncState');b.disabled=true;b.textContent=isPersonalMode()?'Atualizando...':'Sincronizando...';st.textContent=isPersonalMode()?'Atualizando':'Sincronizando';try{await syncDown();renderAll();if(!isPersonalMode())alert('Registros sincronizados com a nuvem.')}catch{st.textContent='Falha na atualização'}finally{b.disabled=false;b.textContent=isPersonalMode()?'Atualizar histórico':'Sincronizar registros'}};
+ $('#refresh').onclick=async()=>{const b=$('#refresh');b.disabled=true;b.textContent=isPersonalMode()?'Atualizando...':'Sincronizando...';paintCloudDemo('sync');try{if(!isPersonalMode())await syncPendingQueue();await syncDown();renderDashboard();renderRecords();renderExport();renderSettings();if(!isPersonalMode())alert('Sincronização concluída. Os registros disponíveis foram conferidos com a nuvem.')}catch{cloudConnected=false;paintCloudDemo();alert('Não foi possível sincronizar agora. Os registros pendentes continuam salvos no aparelho.')}};
  $('#checkUpdate').onclick=async()=>{const st=$('#appUpdateState');st.textContent='Verificando...';const found=await checkForUpdate(true);if(!found)st.textContent='Aplicativo atualizado'};
  $('#logout').onclick=()=>{sessionStorage.removeItem('gf_token');sessionStorage.removeItem('gf_role');sessionStorage.removeItem('gf_tenant');sessionStorage.removeItem(IDENTITY);localStorage.removeItem('gf_token');localStorage.removeItem('gf_role');localStorage.removeItem(IDENTITY);token='';role='user';identity='';loginView()}
 }
