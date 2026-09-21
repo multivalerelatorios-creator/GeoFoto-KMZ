@@ -115,6 +115,17 @@ export default {
    const t=await env.DB.prepare('SELECT name FROM tenants WHERE id=?').bind(s.tenant_id).first().catch(()=>null)
    return json({id:s.tenant_id,name:t?.name||(s.tenant_id==='principal'?'Conta principal':s.tenant_id),role:s.role})
   }
+  if(url.pathname==='/api/storage'&&req.method==='GET'){
+   const prefix='tenants/'+s.tenant_id+'/photos/'
+   let cursor,usedBytes=0,objects=0,truncated=true,pages=0
+   while(truncated&&pages<50){
+    const page=await env.PHOTOS.list({prefix,limit:1000,...(cursor?{cursor}:{})})
+    for(const obj of page.objects||[]){usedBytes+=Number(obj.size||0);objects++}
+    truncated=!!page.truncated;cursor=page.cursor;pages++
+   }
+   const freeAllowanceBytes=10000000000
+   return json({usedBytes,objects,freeAllowanceBytes,remainingFreeBytes:Math.max(0,freeAllowanceBytes-usedBytes),overFreeBytes:Math.max(0,usedBytes-freeAllowanceBytes),complete:!truncated})
+  }
   if(url.pathname==='/api/points'&&req.method==='GET'){
    const {results}=await env.DB.prepare('SELECT id,name,note,lat,lng,accuracy,time,city,address,photo_key FROM points WHERE tenant_id=? ORDER BY time ASC').bind(s.tenant_id).all()
    return json(results.map(p=>({...p,photoUrl:p.photo_key?'/api/photo/'+p.id:''})))

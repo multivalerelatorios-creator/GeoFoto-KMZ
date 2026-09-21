@@ -2,8 +2,8 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.5'
-let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0)
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.6'
+let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null
 const TEMPLATES={
 essential:{name:'Essencial',description:'Dados principais com mapa e identificação.',top:true,panel:.27,map:true,mapWidth:.34,mapHeight:.23,titleScale:.034,textScale:.019},
 compact:{name:'Compacto',description:'Faixa menor, com mini mapa e mais espaço para a imagem.',top:true,panel:.12,map:true,textScale:.013},
@@ -20,6 +20,22 @@ function accountLabel(){if(tenant==='personal')return 'USO PESSOAL';return (tena
 function isPersonalMode(){return role==='personal'||tenant==='personal'}
 function cloudSyncKey(){return 'gf_cloud_sync:'+String(tenant||'principal')}
 function cloudCountKey(){return 'gf_cloud_count:'+String(tenant||'principal')}
+function cloudStorageKey(){return 'gf_cloud_storage:'+String(tenant||'principal')}
+function formatCloudBytes(v){const n=Math.max(0,Number(v)||0);if(n>=1e9)return (n/1e9).toFixed(n>=9.95?1:2)+' GB';if(n>=1e6)return (n/1e6).toFixed(n>=1e8?0:1)+' MB';if(n>=1e3)return (n/1e3).toFixed(0)+' KB';return n+' B'}
+function cachedCloudStorage(){try{return JSON.parse(localStorage.getItem(cloudStorageKey())||'null')}catch{return null}}
+function paintCloudStorage(){
+ const mini=$('#cloudStorageMini'),fill=$('#cloudStorageMiniFill'),used=$('#cloudStorageUsed'),remaining=$('#cloudStorageRemaining'),count=$('#cloudStorageObjects'),bar=$('#cloudStorageFill');
+ if(isPersonalMode()){if(mini)mini.textContent='Dados armazenados somente neste aparelho';return}
+ const s=cloudStorage||cachedCloudStorage();if(!s){if(mini)mini.textContent=cloudConnected?'Calculando espaço da nuvem…':'Espaço da nuvem indisponível offline';return}
+ const total=Number(s.freeAllowanceBytes)||10000000000,u=Number(s.usedBytes)||0,r=Math.max(0,Number(s.remainingFreeBytes??total-u)),pct=Math.min(100,Math.max(0,u/total*100));
+ if(mini)mini.textContent=formatCloudBytes(u)+' usados · '+formatCloudBytes(r)+' disponíveis de 10 GB';
+ if(fill)fill.style.width=pct+'%';if(bar)bar.style.width=pct+'%';if(used)used.textContent=formatCloudBytes(u);if(remaining)remaining.textContent=formatCloudBytes(r);if(count)count.textContent=String(Number(s.objects)||0)
+}
+async function refreshCloudStorage(force=false){
+ if(isPersonalMode()||!token)return null;
+ const cached=cachedCloudStorage();if(!force&&cached&&Date.now()-Number(cached.cachedAt||0)<10*60*1000){cloudStorage=cached;paintCloudStorage();return cached}
+ try{const s=await api('/storage',{timeout:12000});cloudStorage={...s,cachedAt:Date.now()};localStorage.setItem(cloudStorageKey(),JSON.stringify(cloudStorage));paintCloudStorage();return cloudStorage}catch{if(cached){cloudStorage=cached;paintCloudStorage()}return null}
+}
 function cloudTimeLabel(ts){if(!ts)return 'Ainda não sincronizado';return new Intl.DateTimeFormat('pt-BR',{dateStyle:'short',timeStyle:'short'}).format(new Date(ts))}
 function paintCloudDemo(mode=''){
  const top=$('#netStatus'),bar=$('#cloudDemoBar'),state=$('#cloudDemoState'),records=$('#cloudDemoRecords'),pending=$('#cloudDemoPending'),last=$('#cloudDemoLast');
@@ -35,6 +51,7 @@ function paintCloudDemo(mode=''){
  if(records)records.textContent=isPersonalMode()?'—':String(cloudRecords);
  if(pending)pending.textContent=String(cloudPending);
  if(last)last.textContent=isPersonalMode()?'Não se aplica':cloudTimeLabel(lastCloudSync)
+ paintCloudStorage()
 }
 function loadCfg(){
  const d={appName:'GEOFOTO KMZ',company:'',logo:'',banner:'',primaryColor:'#0f766e',defaultTemplate:'essential',enabledTemplates:['essential','compact','location','corporate','technical','evidence','minimal'],showLogo:true,showMap:true};
@@ -182,7 +199,7 @@ function loginView(){
  };
 }
 
-async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><div class="brand-account"><b>${accountLabel()}</b><small>GeoFoto KMZ</small></div></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">${accountLabel()} · Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status cloud-indicator connecting">☁ Conectando</span></header><div id="cloudDemoBar" class="cloud-demo-bar connecting"><span class="cloud-demo-icon">☁</span><div><b data-cloud-label>☁ Conectando</b><small>Registros seguros na nuvem quando conectado</small></div><span class="cloud-demo-pulse"></span></div><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await loadLocalFirst();await ensureIdentity();renderAll();paintCloudDemo();setTimeout(()=>{if(navigator.onLine&&!isPersonalMode())syncDown().then(()=>{renderAll();syncPendingQueue().catch(()=>{})}).catch(()=>{})},80)}
+async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><div class="brand-account"><b>${accountLabel()}</b><small>GeoFoto KMZ</small></div></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">${accountLabel()} · Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status cloud-indicator connecting">☁ Conectando</span></header><div id="cloudDemoBar" class="cloud-demo-bar connecting"><span class="cloud-demo-icon">☁</span><div><b data-cloud-label>☁ Conectando</b><small id="cloudStorageMini">Calculando espaço da nuvem…</small><div class="cloud-storage-mini-track"><i id="cloudStorageMiniFill"></i></div></div><span class="cloud-demo-pulse"></span></div><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await loadLocalFirst();await ensureIdentity();renderAll();paintCloudDemo();setTimeout(()=>{if(navigator.onLine&&!isPersonalMode())syncDown().then(()=>{renderAll();syncPendingQueue().catch(()=>{})}).catch(()=>{})},80)}
 function show(id,b){if(id!=='capture')stopCamera();document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$('#'+id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#title').textContent={dashboard:'Painel',capture:'Câmera',mapa:'Mapa geral',records:'Registros',export:'Exportar KML/KMZ',settings:'Configurações'}[id];if(id==='mapa')setTimeout(()=>{initMap();map.invalidateSize()},180)}
 async function loadLocalFirst(){
  const pending=await pendingAll().catch(()=>[]);
@@ -198,7 +215,7 @@ async function syncDown(){
  try{
   const cloud=await api('/points',{timeout:5000});await snapshotPut(cloud).catch(()=>{});cloudConnected=true;cloudRecords=cloud.length;lastCloudSync=Date.now();localStorage.setItem(cloudSyncKey(),String(lastCloudSync));localStorage.setItem(cloudCountKey(),String(cloudRecords));points=mergePoints(cloud,pending);
   try{const remoteCfg=await api('/config',{timeout:4000});cfg={...cfg,...remoteCfg};if(!Object.prototype.hasOwnProperty.call(remoteCfg,'logo')&&remoteCfg.banner&&!cfg.logo)cfg.logo=remoteCfg.banner;mergeLocalBrand();saveCfg()}catch{mergeLocalBrand()}
-  await updatePendingStatus()
+  await updatePendingStatus();refreshCloudStorage(false).catch(()=>{})
  }catch{
   cloudConnected=false;lastCloudSync=Number(localStorage.getItem(cloudSyncKey())||0);cloudRecords=Number(localStorage.getItem(cloudCountKey())||0);
   let cached=await snapshotGet().catch(()=>[]);if(!cached.length){try{const raw=localStorage.getItem(storeKey(LOCAL))||(tenant==='principal'?localStorage.getItem(LOCAL):null)||'[]';cached=JSON.parse(raw||'[]')}catch{cached=[]}}
@@ -217,7 +234,7 @@ async function syncPendingQueue(){
    catch{cloudConnected=false;break}
   }
   await syncDown().catch(()=>{});
-  if(sent){renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}
+  if(sent){await refreshCloudStorage(true).catch(()=>{});renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}
   return sent
  }finally{offlineSyncing=false;await updatePendingStatus()}
 }
@@ -429,6 +446,13 @@ function renderSettings(){
    <div class="cloud-panel">
     <div class="cloud-panel-head"><span class="cloud-panel-icon">☁</span><div><b id="cloudDemoState">${isPersonalMode()?'Somente neste aparelho':(cloudConnected?(cloudPending?'Conectada com pendências':'Nuvem conectada'):'Offline')}</b><small>${esc(accountLabel())}</small></div></div>
     <div class="cloud-stats"><div><span>Na nuvem</span><b id="cloudDemoRecords">${isPersonalMode()?'—':cloudRecords}</b></div><div><span>Pendentes</span><b id="cloudDemoPending">${cloudPending}</b></div><div><span>Última sincronização</span><b id="cloudDemoLast">${isPersonalMode()?'Não se aplica':cloudTimeLabel(lastCloudSync)}</b></div></div>
+    <div class="cloud-storage-detail">
+     <div><span>Espaço usado</span><b id="cloudStorageUsed">${isPersonalMode()?'—':formatCloudBytes((cloudStorage||cachedCloudStorage())?.usedBytes||0)}</b></div>
+     <div><span>Disponível na franquia</span><b id="cloudStorageRemaining">${isPersonalMode()?'—':formatCloudBytes((cloudStorage||cachedCloudStorage())?.remainingFreeBytes??10000000000)}</b></div>
+     <div><span>Fotos armazenadas</span><b id="cloudStorageObjects">${isPersonalMode()?'—':Number((cloudStorage||cachedCloudStorage())?.objects||0)}</b></div>
+    </div>
+    <div class="cloud-storage-track"><i id="cloudStorageFill"></i></div>
+    <small class="cloud-storage-help">${isPersonalMode()?'Modo pessoal não usa a nuvem do GeoFoto.':'Referência: franquia gratuita atual de 10 GB do R2 Standard.'}</small>
    </div>
    <button class="btn secondary full" id="refresh">${isPersonalMode()?'Atualizar histórico':'Sincronizar agora'}</button>
   </div>
@@ -449,7 +473,7 @@ function renderSettings(){
  $('#clearLogo').onclick=async()=>{cfg.logo='';saveLocalBrand({logo:'',banner:cfg.banner,primaryColor:cfg.primaryColor});await persist();renderSettings()};
  $('#clearBanner').onclick=async()=>{cfg.banner='';saveLocalBrand({logo:cfg.logo,banner:'',primaryColor:cfg.primaryColor});await persist();renderBranding();renderSettings()};
  $('#saveTemplates').onclick=async()=>{const ids=[...document.querySelectorAll('[data-template]:checked')].map(x=>x.dataset.template);cfg.enabledTemplates=ids.length?ids:['essential'];cfg.defaultTemplate=cfg.enabledTemplates.includes($('#defaultTemplate').value)?$('#defaultTemplate').value:cfg.enabledTemplates[0];await persist();alert('Modelos atualizados.')};
- $('#refresh').onclick=async()=>{const b=$('#refresh');b.disabled=true;b.textContent=isPersonalMode()?'Atualizando...':'Sincronizando...';paintCloudDemo('sync');try{if(!isPersonalMode())await syncPendingQueue();await syncDown();renderDashboard();renderRecords();renderExport();renderSettings();if(!isPersonalMode())alert('Sincronização concluída. Os registros disponíveis foram conferidos com a nuvem.')}catch{cloudConnected=false;paintCloudDemo();alert('Não foi possível sincronizar agora. Os registros pendentes continuam salvos no aparelho.')}};
+ $('#refresh').onclick=async()=>{const b=$('#refresh');b.disabled=true;b.textContent=isPersonalMode()?'Atualizando...':'Sincronizando...';paintCloudDemo('sync');try{if(!isPersonalMode())await syncPendingQueue();await syncDown();if(!isPersonalMode())await refreshCloudStorage(true);renderDashboard();renderRecords();renderExport();renderSettings();if(!isPersonalMode())alert('Sincronização concluída. Registros e espaço da nuvem foram atualizados.')}catch{cloudConnected=false;paintCloudDemo();alert('Não foi possível sincronizar agora. Os registros pendentes continuam salvos no aparelho.')}};
  $('#checkUpdate').onclick=async()=>{const st=$('#appUpdateState');st.textContent='Verificando...';const found=await checkForUpdate(true);if(!found)st.textContent='Aplicativo atualizado'};
  $('#logout').onclick=()=>{sessionStorage.removeItem('gf_token');sessionStorage.removeItem('gf_role');sessionStorage.removeItem('gf_tenant');sessionStorage.removeItem(IDENTITY);localStorage.removeItem('gf_token');localStorage.removeItem('gf_role');localStorage.removeItem(IDENTITY);token='';role='user';identity='';loginView()}
 }
