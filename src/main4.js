@@ -2,8 +2,8 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.4'
-let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.5'
+let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0)
 const TEMPLATES={
 essential:{name:'Essencial',description:'Dados principais com mapa e identificação.',top:true,panel:.27,map:true,mapWidth:.34,mapHeight:.23,titleScale:.034,textScale:.019},
 compact:{name:'Compacto',description:'Faixa menor, com mini mapa e mais espaço para a imagem.',top:true,panel:.12,map:true,textScale:.013},
@@ -52,10 +52,12 @@ async function optimizeBrandImage(file){
  c.getContext('2d').drawImage(img,0,0,c.width,c.height);
  return c.toDataURL('image/jpeg',.88)
 }
-function offlineDb(){return new Promise((resolve,reject)=>{const r=indexedDB.open('geofoto-offline-v1',1);r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains('pending'))db.createObjectStore('pending',{keyPath:'id'})};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
+function offlineDb(){return new Promise((resolve,reject)=>{const r=indexedDB.open('geofoto-offline-v1',2);r.onupgradeneeded=()=>{const db=r.result;if(!db.objectStoreNames.contains('pending'))db.createObjectStore('pending',{keyPath:'id'});if(!db.objectStoreNames.contains('snapshots'))db.createObjectStore('snapshots',{keyPath:'tenant'})};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
 async function pendingAll(){const db=await offlineDb();return new Promise((resolve,reject)=>{const r=db.transaction('pending').objectStore('pending').getAll();r.onsuccess=()=>resolve((r.result||[]).filter(p=>(p._tenant||'principal')===tenant));r.onerror=()=>reject(r.error)})}
 async function pendingPut(p){const db=await offlineDb();return new Promise((resolve,reject)=>{const tx=db.transaction('pending','readwrite');tx.objectStore('pending').put({...p,_pending:true,_tenant:tenant});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
 async function pendingDelete(id){const db=await offlineDb();return new Promise((resolve,reject)=>{const tx=db.transaction('pending','readwrite');tx.objectStore('pending').delete(id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
+async function snapshotGet(){const db=await offlineDb();return new Promise((resolve,reject)=>{const r=db.transaction('snapshots').objectStore('snapshots').get(tenant);r.onsuccess=()=>resolve(r.result?.points||[]);r.onerror=()=>reject(r.error)})}
+async function snapshotPut(list){const db=await offlineDb();const safe=(list||[]).map(p=>{const q={...p};delete q.photo;delete q._pending;return q});return new Promise((resolve,reject)=>{const tx=db.transaction('snapshots','readwrite');tx.objectStore('snapshots').put({tenant,points:safe,updatedAt:Date.now()});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
 async function requestPersistentStorage(){try{if(navigator.storage?.persist)await navigator.storage.persist()}catch{}}
 function mergePoints(cloud,pending){const m=new Map();for(const p of cloud||[])m.set(p.id,p);for(const p of pending||[])if(!m.has(p.id))m.set(p.id,{...p,_pending:true});return [...m.values()].sort((a,b)=>String(a.time).localeCompare(String(b.time)))}
 async function updatePendingStatus(mode=''){
@@ -63,8 +65,14 @@ async function updatePendingStatus(mode=''){
  paintCloudDemo(mode);
  return cloudPending
 }
-async function api(path,opt={}){const h={'Content-Type':'application/json',...(opt.headers||{})};if(token)h.Authorization=`Bearer ${token}`;const r=await fetch('/api'+path,{...opt,headers:h});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'Falha na comunicação');return d}
-async function apiBlob(path){const h={};if(token)h.Authorization=`Bearer ${token}`;const url=path.startsWith('/api/')?path:'/api'+path;const r=await fetch(url,{headers:h});if(!r.ok)throw Error('Falha ao carregar foto');return r.blob()}
+async function api(path,opt={}){
+ const h={'Content-Type':'application/json',...(opt.headers||{})};if(token)h.Authorization=`Bearer ${token}`;
+ const ms=Number(opt.timeout||7000),ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),ms),{timeout,...fetchOpt}=opt;
+ try{const r=await fetch('/api'+path,{...fetchOpt,headers:h,signal:fetchOpt.signal||ctrl.signal});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'Falha na comunicação');return d}
+ catch(e){if(e?.name==='AbortError')throw Error('Tempo esgotado na conexão');throw e}
+ finally{clearTimeout(timer)}
+}
+async function apiBlob(path){const h={};if(token)h.Authorization=`Bearer ${token}`;const url=path.startsWith('/api/')?path:'/api'+path,ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),10000);try{const r=await fetch(url,{headers:h,signal:ctrl.signal});if(!r.ok)throw Error('Falha ao carregar foto');return r.blob()}finally{clearTimeout(timer)}}
 function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
 function ensureIdentity(){
  if(identity.trim())return Promise.resolve(identity);
@@ -174,34 +182,44 @@ function loginView(){
  };
 }
 
-async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><div class="brand-account"><b>${accountLabel()}</b><small>GeoFoto KMZ</small></div></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">${accountLabel()} · Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status cloud-indicator connecting">☁ Conectando</span></header><div id="cloudDemoBar" class="cloud-demo-bar connecting"><span class="cloud-demo-icon">☁</span><div><b data-cloud-label>☁ Conectando</b><small>Registros seguros na nuvem quando conectado</small></div><span class="cloud-demo-pulse"></span></div><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await syncDown();await ensureIdentity();renderAll();setTimeout(syncPendingQueue,900)}
+async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo">⌖</div><div class="brand-account"><b>${accountLabel()}</b><small>GeoFoto KMZ</small></div></div><nav class="nav"><button data-page="dashboard">▦ Painel</button><button class="active" data-page="capture">◎ Câmera</button><button data-page="mapa">⌖ Mapa</button><button data-page="records">☷ Registros</button><button data-page="export">⇩ Exportar</button><button data-page="settings">⚙ Configurações</button></nav></aside><main class="main"><header class="top"><div><h2 id="title">Câmera</h2><span class="muted">${accountLabel()} · Tirou a foto = salvou o ponto automaticamente</span></div><span id="netStatus" class="status cloud-indicator connecting">☁ Conectando</span></header><div id="cloudDemoBar" class="cloud-demo-bar connecting"><span class="cloud-demo-icon">☁</span><div><b data-cloud-label>☁ Conectando</b><small>Registros seguros na nuvem quando conectado</small></div><span class="cloud-demo-pulse"></span></div><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="card"><div id="map"></div></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));await requestPersistentStorage();await loadLocalFirst();await ensureIdentity();renderAll();paintCloudDemo();setTimeout(()=>{if(navigator.onLine&&!isPersonalMode())syncDown().then(()=>{renderAll();syncPendingQueue().catch(()=>{})}).catch(()=>{})},80)}
 function show(id,b){if(id!=='capture')stopCamera();document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$('#'+id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');$('#title').textContent={dashboard:'Painel',capture:'Câmera',mapa:'Mapa geral',records:'Registros',export:'Exportar KML/KMZ',settings:'Configurações'}[id];if(id==='mapa')setTimeout(()=>{initMap();map.invalidateSize()},180)}
+async function loadLocalFirst(){
+ const pending=await pendingAll().catch(()=>[]);
+ let base=await snapshotGet().catch(()=>[]);
+ if(!base.length){try{const raw=localStorage.getItem(storeKey(LOCAL))||(tenant==='principal'?localStorage.getItem(LOCAL):null)||'[]';base=JSON.parse(raw||'[]')}catch{base=[]}}
+ points=mergePoints(base,pending);
+ cloudPending=pending.length;cloudConnected=false;cloudRecords=Number(localStorage.getItem(cloudCountKey())||0);lastCloudSync=Number(localStorage.getItem(cloudSyncKey())||0);
+ paintCloudDemo()
+}
 async function syncDown(){
  const pending=await pendingAll().catch(()=>[]);
  if(isPersonalMode()){cloudConnected=false;cloudRecords=0;lastCloudSync=0;const legacyRaw=localStorage.getItem(storeKey(LOCAL))||'[]',legacy=JSON.parse(legacyRaw||'[]');points=mergePoints(legacy,pending);await updatePendingStatus();return}
  try{
-  const cloud=await api('/points');cloudConnected=true;cloudRecords=cloud.length;lastCloudSync=Date.now();localStorage.setItem(cloudSyncKey(),String(lastCloudSync));localStorage.setItem(cloudCountKey(),String(cloudRecords));points=mergePoints(cloud,pending);
-  try{const remoteCfg=await api('/config');cfg={...cfg,...remoteCfg};if(!Object.prototype.hasOwnProperty.call(remoteCfg,'logo')&&remoteCfg.banner&&!cfg.logo)cfg.logo=remoteCfg.banner;mergeLocalBrand();saveCfg()}catch{mergeLocalBrand()}
+  const cloud=await api('/points',{timeout:5000});await snapshotPut(cloud).catch(()=>{});cloudConnected=true;cloudRecords=cloud.length;lastCloudSync=Date.now();localStorage.setItem(cloudSyncKey(),String(lastCloudSync));localStorage.setItem(cloudCountKey(),String(cloudRecords));points=mergePoints(cloud,pending);
+  try{const remoteCfg=await api('/config',{timeout:4000});cfg={...cfg,...remoteCfg};if(!Object.prototype.hasOwnProperty.call(remoteCfg,'logo')&&remoteCfg.banner&&!cfg.logo)cfg.logo=remoteCfg.banner;mergeLocalBrand();saveCfg()}catch{mergeLocalBrand()}
   await updatePendingStatus()
  }catch{
   cloudConnected=false;lastCloudSync=Number(localStorage.getItem(cloudSyncKey())||0);cloudRecords=Number(localStorage.getItem(cloudCountKey())||0);
-  const legacyRaw=localStorage.getItem(storeKey(LOCAL))||(tenant==='principal'?localStorage.getItem(LOCAL):null),legacy=JSON.parse(legacyRaw||'[]');
-  points=mergePoints(legacy,pending);
+  let cached=await snapshotGet().catch(()=>[]);if(!cached.length){try{const raw=localStorage.getItem(storeKey(LOCAL))||(tenant==='principal'?localStorage.getItem(LOCAL):null)||'[]';cached=JSON.parse(raw||'[]')}catch{cached=[]}}
+  points=mergePoints(cached,pending);
   await updatePendingStatus()
  }
 }
 async function syncPendingQueue(){
  if(isPersonalMode())return updatePendingStatus();
- if(offlineSyncing)return; if(!navigator.onLine)return updatePendingStatus();
+ if(offlineSyncing)return 0;if(!navigator.onLine)return updatePendingStatus();
  const pending=await pendingAll().catch(()=>[]);if(!pending.length)return updatePendingStatus();
- offlineSyncing=true;await updatePendingStatus('sync');let sent=0;
- for(const p of pending){
-  try{const clean={...p};delete clean._pending;delete clean._tenant;await api('/points',{method:'POST',body:JSON.stringify(clean)});await pendingDelete(p.id);sent++}
-  catch{break}
- }
- await syncDown();
- if(sent){renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}
- offlineSyncing=false;return sent
+ offlineSyncing=true;let sent=0;await updatePendingStatus('sync');
+ try{
+  for(const p of pending){
+   try{const clean={...p};delete clean._pending;delete clean._tenant;await api('/points',{method:'POST',body:JSON.stringify(clean),timeout:20000});await pendingDelete(p.id);sent++}
+   catch{cloudConnected=false;break}
+  }
+  await syncDown().catch(()=>{});
+  if(sent){renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}
+  return sent
+ }finally{offlineSyncing=false;await updatePendingStatus()}
 }
 function renderAll(){renderBranding();renderDashboard();renderCapture();renderRecords();renderExport();renderSettings()}
 function renderBranding(){
@@ -302,7 +320,7 @@ async function annotate(){
    const mw=Math.round(cardW*(Number(t.mapWidth)||.34)),mh=Math.min(Math.round(c.height*(Number(t.mapHeight)||.20)),Math.round(panelH*.70)),mx=cardX+cardW-pad-mw,my=panelY+Math.round((panelH-mh)/2);
    await miniMap(x,mx,my,mw,mh);
  }
- photo=c.toDataURL('image/jpeg',.92)
+ photo=c.toDataURL('image/jpeg',.88)
 }
 function drawWrappedText(x,text,a,b,maxW,lineH,maxLines=2){const words=String(text).split(' ');let line='',lines=0;for(const w of words){const test=line?line+' '+w:w;if(x.measureText(test).width>maxW&&line){x.fillText(line,a,b);b+=lineH;lines++;line=w;if(lines>=maxLines-1)break}else line=test}if(line&&lines<maxLines){x.fillText(line,a,b);b+=lineH}return b}
 function topBar(x,w,h){x.fillStyle=cfg.primaryColor||'#0f766e';x.fillRect(0,0,w,h);x.fillStyle='#fff';x.font=`bold ${Math.max(24,Math.round(w*.028))}px Arial`;x.fillText(cfg.company||cfg.appName||'GeoFoto KMZ',Math.round(w*.03),Math.round(h*.62))}
@@ -336,12 +354,12 @@ async function loadOsmSnapshot(lat,lng,w=700,h=420,z=18){
  const x0=Math.floor(left/tile),x1=Math.floor((left+w)/tile),y0=Math.floor(top/tile),y1=Math.floor((top+h)/tile),jobs=[];
  for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++){
   const wrapped=((tx%n)+n)%n,dx=Math.round(tx*tile-left),dy=Math.round(ty*tile-top);
-  jobs.push(loadImg('/api/tile/'+z+'/'+wrapped+'/'+ty+'.png').then(img=>g.drawImage(img,dx,dy,tile,tile)).catch(()=>{}));
+  jobs.push(loadImg('/api/tile/'+z+'/'+wrapped+'/'+ty+'.png',1500).then(img=>g.drawImage(img,dx,dy,tile,tile)).catch(()=>{}));
  }
  await Promise.all(jobs);
  return c
 }
-function loadImg(src){return new Promise((r,j)=>{const i=new Image();i.onload=()=>r(i);i.onerror=j;i.src=src})}
+function loadImg(src,ms=5000){return new Promise((r,j)=>{const i=new Image(),timer=setTimeout(()=>{i.src='';j(new Error('Tempo esgotado ao carregar imagem'))},ms);i.onload=()=>{clearTimeout(timer);r(i)};i.onerror=e=>{clearTimeout(timer);j(e)};i.src=src})}
 function captureUi(){const v=$('#camera'),p=$('#preview');p.src=photo||raw;p.classList.remove('hidden');v.classList.add('hidden');$('#take').classList.add('hidden');$('#retake').classList.remove('hidden');$('#shareActions').classList.remove('hidden');$('#shareBtn').onclick=shareCurrent;$('#downloadBtn').onclick=downloadCurrentPhoto}
 function retake(){raw='';photo='';savedPhotoKey='';saving=false;$('#preview').classList.add('hidden');$('#camera').classList.remove('hidden');$('#take').classList.remove('hidden');$('#retake').classList.add('hidden');$('#shareActions').classList.add('hidden');$('#saveStatus').textContent='Aguardando nova foto...';startCamera();getGps()}
 async function getGps(){
@@ -349,16 +367,33 @@ async function getGps(){
  geo=null;updateCaptureReady();
  if(!navigator.geolocation){set('error','GPS indisponível neste aparelho.');return false}
  set('waiting','Obtendo localização…');
- return new Promise(resolve=>navigator.geolocation.getCurrentPosition(async p=>{
-  geo={latitude:p.coords.latitude,longitude:p.coords.longitude,accuracy:p.coords.accuracy};
+ return new Promise(resolve=>navigator.geolocation.getCurrentPosition(p=>{
+  geo={latitude:p.coords.latitude,longitude:p.coords.longitude,accuracy:p.coords.accuracy,city:'',address:''};
   set('ok','GPS OK · ±'+Math.round(geo.accuracy)+' m');
-  const r=await reverse(geo.latitude,geo.longitude);geo.city=r.city;geo.address=r.address;
-  if(el)el.innerHTML=`Latitude: <b>${geo.latitude.toFixed(6)}</b> · Longitude: <b>${geo.longitude.toFixed(6)}</b> · Precisão: <b>${Math.round(geo.accuracy)} m</b><br><b>${esc(geo.city)}</b> · ${esc(geo.address)}`;
-  updateCaptureReady();if(raw){await annotate();captureUi();await maybeAutoSave()}resolve(true)
- },e=>{const denied=e.code===1;set('error',denied?'Permissão de localização bloqueada. Ative a localização para o GeoFoto KMZ.':'Falha no GPS: '+e.message);updateCaptureReady();resolve(false)},{enableHighAccuracy:true,timeout:20000,maximumAge:0}))
+  if(el)el.innerHTML=`Latitude: <b>${geo.latitude.toFixed(6)}</b> · Longitude: <b>${geo.longitude.toFixed(6)}</b> · Precisão: <b>${Math.round(geo.accuracy)} m</b><br><span>${navigator.onLine?'Buscando endereço…':'Sem internet · coordenadas salvas normalmente'}</span>`;
+  updateCaptureReady();resolve(true);
+  if(navigator.onLine)reverse(geo.latitude,geo.longitude).then(r=>{if(!geo)return;geo.city=r.city;geo.address=r.address;if(el)el.innerHTML=`Latitude: <b>${geo.latitude.toFixed(6)}</b> · Longitude: <b>${geo.longitude.toFixed(6)}</b> · Precisão: <b>${Math.round(geo.accuracy)} m</b><br><b>${esc(geo.city||'Localização GPS')}</b> · ${esc(geo.address||'Endereço não localizado')}`}).catch(()=>{})
+ },e=>{const denied=e.code===1;set('error',denied?'Permissão de localização bloqueada. Ative a localização para o GeoFoto KMZ.':'Falha no GPS: '+e.message);updateCaptureReady();resolve(false)},{enableHighAccuracy:true,timeout:20000,maximumAge:3000}))
 }
-async function reverse(lat,lng){try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`),d=await r.json(),a=d.address||{};return{address:d.display_name||'',city:a.city||a.town||a.village||a.municipality||a.county||''}}catch{return{address:'',city:''}}}
-async function maybeAutoSave(){if(!photo||!geo||saving||!savedPhotoKey)return;const key=savedPhotoKey;saving=true;const st=$('#saveStatus');if(st)st.textContent='Salvando automaticamente e adicionando o pino ao mapa/KMZ...';const p={id:crypto.randomUUID(),name:($('#pointName').value.trim()||`Ponto ${points.length+1}`).toLocaleUpperCase('pt-BR'),note:$('#note').value.trim(),lat:geo.latitude,lng:geo.longitude,accuracy:geo.accuracy,time:new Date().toISOString(),city:geo.city||'',address:geo.address||'',photo};try{if(isPersonalMode()){await pendingPut(p);await syncDown();if(st)st.textContent='✓ Salvo neste aparelho. Pino adicionado ao mapa e ao KMZ.';renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)};return}if(!navigator.onLine)throw Error('offline');await api('/points',{method:'POST',body:JSON.stringify(p)});await syncDown();if(st)st.textContent='✓ Salvo na nuvem. Pino adicionado ao mapa e ao KMZ.';renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}catch{await pendingPut(p);await syncDown();if(st)st.textContent='✓ Salvo offline neste aparelho. Envio automático quando a internet voltar.';renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}finally{await updatePendingStatus();if(savedPhotoKey===key)saving=false}}
+async function reverse(lat,lng){if(!navigator.onLine)return{address:'',city:''};const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),3500);try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`,{signal:ctrl.signal}),d=await r.json(),a=d.address||{};return{address:d.display_name||'',city:a.city||a.town||a.village||a.municipality||a.county||''}}catch{return{address:'',city:''}}finally{clearTimeout(timer)}}
+async function maybeAutoSave(){
+ if(!photo||!geo||saving||!savedPhotoKey)return;
+ const key=savedPhotoKey;saving=true;const st=$('#saveStatus');
+ const p={id:crypto.randomUUID(),name:($('#pointName').value.trim()||`Ponto ${points.length+1}`).toLocaleUpperCase('pt-BR'),note:$('#note').value.trim(),lat:geo.latitude,lng:geo.longitude,accuracy:geo.accuracy,time:new Date().toISOString(),city:geo.city||'',address:geo.address||'',photo};
+ try{
+  if(st)st.textContent='Salvando primeiro neste aparelho…';
+  await pendingPut(p);
+  points=mergePoints(points,[{...p,_pending:true}]);
+  cloudPending=(await pendingAll().catch(()=>[])).length;
+  if(st)st.textContent=isPersonalMode()?'✓ Salvo com segurança neste aparelho.':(navigator.onLine?'✓ Salvo no aparelho. Enviando para a nuvem…':'✓ Salvo offline. Será enviado automaticamente quando a internet voltar.');
+  renderDashboard();renderRecords();renderExport();paintCloudDemo(navigator.onLine&&!isPersonalMode()?'sync':'');
+  if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}
+  if(!isPersonalMode()&&navigator.onLine)setTimeout(()=>syncPendingQueue().catch(()=>{}),120)
+ }catch(e){
+  if(st)st.textContent='⚠ Não foi possível salvar no aparelho. Verifique o espaço de armazenamento.';
+  alert('A foto não foi salva. Verifique se o celular possui espaço livre e tente novamente.')
+ }finally{await updatePendingStatus();if(savedPhotoKey===key)saving=false}
+}
 async function downloadCurrentPhoto(){const src=photo||raw;if(!src)return;const blob=dataToBlob(src),point=safeName($('#pointName')?.value||'geofoto'),name=`${point}-${Date.now()}.jpg`,st=$('#saveStatus');try{saveBlob(blob,name);if(st)st.textContent='✓ Foto salva no celular. Verifique a pasta Downloads.'}catch(e){if(st)st.textContent='Não foi possível salvar a foto neste aparelho.'}}
 async function shareCurrent(){return shareBlob(dataToBlob(photo||raw),`geofoto-${Date.now()}.jpg`)}
 async function shareRecord(id){const p=points.find(x=>x.id===id);if(!p)return;if(p.photo)return shareBlob(dataToBlob(p.photo),`${safeName(p.name)}.jpg`);if(p.photoUrl){const b=await apiBlob(p.photoUrl);return shareBlob(b,`${safeName(p.name)}.jpg`)}}
