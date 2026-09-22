@@ -215,6 +215,8 @@ export default {
 async function savePoint(req,env,s){
  const p=await req.json().catch(()=>({}))
  if(typeof p.lat!=='number'||typeof p.lng!=='number')return json({error:'Coordenadas inválidas'},400)
+ let headerIdentity='';try{headerIdentity=decodeURIComponent(req.headers.get('X-GeoFoto-Identity')||'').trim()}catch{}
+ const technician=String(p.technician||headerIdentity||'').trim().slice(0,80)
  const id=p.id||crypto.randomUUID();let photoKey=''
  if(typeof p.photo==='string'&&p.photo.startsWith('data:image/')){
   const [meta,b64]=p.photo.split(','),type=(meta.match(/data:(.*?);/)||[])[1]||'image/jpeg'
@@ -223,8 +225,8 @@ async function savePoint(req,env,s){
   await env.PHOTOS.put(photoKey,bytes,{httpMetadata:{contentType:type}})
  }
  await env.DB.prepare("INSERT INTO points (id,name,note,technician,lat,lng,accuracy,time,city,address,photo_key,tenant_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,note=excluded.note,technician=excluded.technician,lat=excluded.lat,lng=excluded.lng,accuracy=excluded.accuracy,time=excluded.time,city=excluded.city,address=excluded.address,photo_key=CASE WHEN excluded.photo_key<>'' THEN excluded.photo_key ELSE points.photo_key END WHERE points.tenant_id=excluded.tenant_id")
-  .bind(id,String(p.name||'Ponto'),String(p.note||''),String(p.technician||''),p.lat,p.lng,Number(p.accuracy||0),p.time||new Date().toISOString(),String(p.city||''),String(p.address||''),photoKey,s.tenant_id).run()
- return json({id,name:p.name||'Ponto',note:p.note||'',technician:p.technician||'',lat:p.lat,lng:p.lng,accuracy:p.accuracy||0,time:p.time||new Date().toISOString(),city:p.city||'',address:p.address||'',photoUrl:photoKey?'/api/photo/'+id:''},201)
+  .bind(id,String(p.name||'Ponto'),String(p.note||''),technician,p.lat,p.lng,Number(p.accuracy||0),p.time||new Date().toISOString(),String(p.city||''),String(p.address||''),photoKey,s.tenant_id).run()
+ return json({id,name:p.name||'Ponto',note:p.note||'',technician,lat:p.lat,lng:p.lng,accuracy:p.accuracy||0,time:p.time||new Date().toISOString(),city:p.city||'',address:p.address||'',photoUrl:photoKey?'/api/photo/'+id:''},201)
 }
 async function getPhoto(url,env,s){
  const id=url.pathname.split('/').pop()

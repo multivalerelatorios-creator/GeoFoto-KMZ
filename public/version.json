@@ -1,1 +1,1 @@
-{"version":"1.4.7","released":"2026-09-22","name":"GeoFoto KMZ","notes":"Filtro de registros por técnico; nome do técnico salvo em cada registro; técnico exibido no mapa e no KMZ."}
+{"version":"1.4.8","released":"2026-09-22","name":"GeoFoto KMZ","notes":"Identidade do usuário enviada junto com todo registro e sincronização; filtro de técnicos passa a usar o nome realmente gravado no ponto."}
