@@ -205,3 +205,11 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-ser
 .cloud-storage-track{height:7px;margin-top:10px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,.10)}
 .cloud-storage-help{display:block;margin-top:7px;color:var(--gf-muted);font-size:10px;line-height:1.4}
 @media(max-width:560px){.cloud-storage-detail{grid-template-columns:1fr 1fr}.cloud-storage-detail>div:last-child{grid-column:1/-1}}
+
+/* ===== FILTRO DE REGISTROS POR TECNICO ===== */
+.records-toolbar{display:flex;justify-content:space-between;align-items:end;gap:12px;margin:0 0 14px;padding:14px;border:1px solid var(--gf-border);border-radius:14px;background:rgba(255,255,255,.035)}
+.records-toolbar label{display:grid;gap:6px;min-width:min(320px,100%)}.records-toolbar label>span{font-size:11px;font-weight:800;color:#b9c8d8;letter-spacing:.04em}
+.records-toolbar select{width:100%;min-height:44px;padding:10px 12px;border-radius:11px;border:1px solid rgba(96,165,250,.24);background:#0b1726;color:#fff;font-weight:700}
+.records-filter-count{display:grid;justify-items:end;gap:1px}.records-filter-count b{font-size:23px}.records-filter-count span{font-size:11px;color:var(--gf-muted)}
+.record-technician{display:flex;gap:6px;align-items:center;margin-top:6px;font-size:12px}.record-technician span{color:var(--gf-muted)}.record-technician b{color:#b9d6ff}
+@media(max-width:600px){.records-toolbar{align-items:stretch;flex-direction:column}.records-toolbar label{min-width:0}.records-filter-count{grid-auto-flow:column;justify-content:start;align-items:baseline;gap:6px}.records-filter-count b{font-size:18px}}

@@ -1,4 +1,4 @@
-const CACHE='geofoto-kmz-v26';
+const CACHE='geofoto-kmz-v27';
 const CORE=['/','/manifest.webmanifest'];
 self.addEventListener('install',e=>e.waitUntil((async()=>{
  const c=await caches.open(CACHE);

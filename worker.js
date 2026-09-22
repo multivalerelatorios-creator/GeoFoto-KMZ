@@ -127,7 +127,7 @@ export default {
    return json({usedBytes,objects,freeAllowanceBytes,remainingFreeBytes:Math.max(0,freeAllowanceBytes-usedBytes),overFreeBytes:Math.max(0,usedBytes-freeAllowanceBytes),complete:!truncated})
   }
   if(url.pathname==='/api/points'&&req.method==='GET'){
-   const {results}=await env.DB.prepare('SELECT id,name,note,lat,lng,accuracy,time,city,address,photo_key FROM points WHERE tenant_id=? ORDER BY time ASC').bind(s.tenant_id).all()
+   const {results}=await env.DB.prepare('SELECT id,name,note,technician,lat,lng,accuracy,time,city,address,photo_key FROM points WHERE tenant_id=? ORDER BY time ASC').bind(s.tenant_id).all()
    return json(results.map(p=>({...p,photoUrl:p.photo_key?'/api/photo/'+p.id:''})))
   }
   if(url.pathname==='/api/points'&&req.method==='POST')return savePoint(req,env,s)
@@ -222,9 +222,9 @@ async function savePoint(req,env,s){
   photoKey='tenants/'+s.tenant_id+'/photos/'+id+'.jpg'
   await env.PHOTOS.put(photoKey,bytes,{httpMetadata:{contentType:type}})
  }
- await env.DB.prepare("INSERT INTO points (id,name,note,lat,lng,accuracy,time,city,address,photo_key,tenant_id) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,note=excluded.note,lat=excluded.lat,lng=excluded.lng,accuracy=excluded.accuracy,time=excluded.time,city=excluded.city,address=excluded.address,photo_key=CASE WHEN excluded.photo_key<>'' THEN excluded.photo_key ELSE points.photo_key END WHERE points.tenant_id=excluded.tenant_id")
-  .bind(id,String(p.name||'Ponto'),String(p.note||''),p.lat,p.lng,Number(p.accuracy||0),p.time||new Date().toISOString(),String(p.city||''),String(p.address||''),photoKey,s.tenant_id).run()
- return json({id,name:p.name||'Ponto',note:p.note||'',lat:p.lat,lng:p.lng,accuracy:p.accuracy||0,time:p.time||new Date().toISOString(),city:p.city||'',address:p.address||'',photoUrl:photoKey?'/api/photo/'+id:''},201)
+ await env.DB.prepare("INSERT INTO points (id,name,note,technician,lat,lng,accuracy,time,city,address,photo_key,tenant_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,note=excluded.note,technician=excluded.technician,lat=excluded.lat,lng=excluded.lng,accuracy=excluded.accuracy,time=excluded.time,city=excluded.city,address=excluded.address,photo_key=CASE WHEN excluded.photo_key<>'' THEN excluded.photo_key ELSE points.photo_key END WHERE points.tenant_id=excluded.tenant_id")
+  .bind(id,String(p.name||'Ponto'),String(p.note||''),String(p.technician||''),p.lat,p.lng,Number(p.accuracy||0),p.time||new Date().toISOString(),String(p.city||''),String(p.address||''),photoKey,s.tenant_id).run()
+ return json({id,name:p.name||'Ponto',note:p.note||'',technician:p.technician||'',lat:p.lat,lng:p.lng,accuracy:p.accuracy||0,time:p.time||new Date().toISOString(),city:p.city||'',address:p.address||'',photoUrl:photoKey?'/api/photo/'+id:''},201)
 }
 async function getPhoto(url,env,s){
  const id=url.pathname.split('/').pop()
