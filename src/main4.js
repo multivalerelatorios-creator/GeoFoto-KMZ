@@ -2,7 +2,7 @@
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.10'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.4.11'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter=''
 const TEMPLATES={
 essential:{name:'Essencial',description:'Dados principais com mapa e identificação.',top:true,panel:.27,map:true,mapWidth:.34,mapHeight:.23,titleScale:.034,textScale:.019},
@@ -90,7 +90,10 @@ async function api(path,opt={}){
  finally{clearTimeout(timer)}
 }
 async function apiBlob(path){const h={};if(token)h.Authorization=`Bearer ${token}`;const url=path.startsWith('/api/')?path:'/api'+path,ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),10000);try{const r=await fetch(url,{headers:h,signal:ctrl.signal});if(!r.ok)throw Error('Falha ao carregar foto');return r.blob()}finally{clearTimeout(timer)}}
-function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
+function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}torchOn=false;torchSupported=false;updateTorchButton()}
+function updateTorchButton(){const b=$('#flashToggle');if(!b)return;b.disabled=!torchSupported;b.classList.toggle('active',torchOn);b.innerHTML=torchOn?'🔦 Flash ligado':'⚡ Flash';b.title=torchSupported?'Ligar ou desligar o flash da câmera':'Flash não disponível nesta câmera'}
+async function detectTorch(){const t=stream?.getVideoTracks?.()[0];let caps={};try{caps=t?.getCapabilities?.()||{}}catch{}torchSupported=!!(t&&caps.torch);torchOn=false;updateTorchButton();return torchSupported}
+async function toggleTorch(){const t=stream?.getVideoTracks?.()[0];if(!t)return;let caps={};try{caps=t.getCapabilities?.()||{}}catch{}if(!caps.torch){torchSupported=false;updateTorchButton();const info=$('#camInfo');if(info)info.textContent='Este aparelho/câmera não permite controlar o flash pelo navegador.';return}try{torchOn=!torchOn;await t.applyConstraints({advanced:[{torch:torchOn}]});torchSupported=true;updateTorchButton();const info=$('#camInfo');if(info)info.textContent=torchOn?'Flash ligado para fotos noturnas.':'Flash desligado.'}catch(e){torchOn=false;updateTorchButton();const info=$('#camInfo');if(info)info.textContent='Não foi possível alterar o flash nesta câmera.'}}
 function ensureIdentity(){
  if(identity.trim())return Promise.resolve(identity);
  return new Promise(resolve=>{
@@ -130,7 +133,7 @@ function loginView(){
    <form id="loginForm">
     <label class="field">Código da empresa<input id="account" value="${attr(account)}" autocomplete="organization" autocapitalize="none" spellcheck="false" required></label>
     <label class="field">Usuário<input id="user" autocomplete="username" required></label>
-    <label class="field">Senha<input id="pass" type="password" autocomplete="current-password" required></label>
+    <label class="field">Senha<div class="password-input-wrap"><input id="pass" type="password" autocomplete="current-password" required><button class="password-toggle" id="togglePass" type="button" aria-label="Mostrar senha" title="Mostrar senha">👁</button></div></label>
     <button class="btn primary full">Entrar</button>
     <button class="text-action" id="recoverAccess" type="button">Recuperar acesso administrativo</button>
     <p id="loginMsg" class="muted"></p>
@@ -173,6 +176,7 @@ function loginView(){
   localStorage.removeItem('gf_token');localStorage.setItem('gf_role','personal');localStorage.setItem(ACCOUNT,'personal');
   await appView()
  };
+ const passInput=$('#pass'),togglePass=$('#togglePass');if(togglePass)togglePass.onclick=()=>{const show=passInput.type==='password';passInput.type=show?'text':'password';togglePass.textContent=show?'🙈':'👁';togglePass.setAttribute('aria-label',show?'Ocultar senha':'Mostrar senha');togglePass.title=show?'Ocultar senha':'Mostrar senha'};
  $('#loginForm').onsubmit=async e=>{
   e.preventDefault();const acc=$('#account').value.trim().toLowerCase();
   try{const d=await api('/login',{method:'POST',body:JSON.stringify({account:acc,user:$('#user').value,pass:$('#pass').value})});await startTenantSession(d,acc)}
@@ -258,7 +262,7 @@ function renderCapture(){
  <div id="pointNameHint" class="muted small">Primeiro informe a identificação do ponto.</div>
  <div class="sensor-panel"><div id="camState" class="sensor-state waiting"><b>📷 Câmera</b><span>Aguardando identificação</span></div><div id="gpsState" class="sensor-state waiting"><b>⌖ GPS</b><span>Aguardando identificação</span></div></div>
  <button class="btn primary sensor-retry" id="retrySensors" type="button" disabled>Liberar câmera e GPS</button>
- <video id="camera" class="camera-large" autoplay playsinline muted></video><canvas id="canvas" class="hidden"></canvas><img id="preview" class="camera-large hidden">
+ <div class="camera-preview-wrap"><video id="camera" class="camera-large" autoplay playsinline muted></video><button class="flash-toggle" id="flashToggle" type="button" disabled title="Flash não disponível nesta câmera">⚡ Flash</button></div><canvas id="canvas" class="hidden"></canvas><img id="preview" class="camera-large hidden">
  <div class="actions"><button class="btn primary" id="take" disabled>📷 Tirar foto</button><button class="btn secondary hidden" id="retake">↻ Tirar novamente</button></div>
  <label class="field">Observação<textarea id="note" rows="3" placeholder="Descrição opcional"></textarea></label>
  <div class="actions"><button class="btn secondary" id="gps" disabled>Atualizar GPS</button></div><div class="actions hidden" id="shareActions"><button class="btn primary" id="shareBtn">📤 Enviar</button><button class="btn secondary" id="downloadBtn">⬇ Salvar foto</button></div>
@@ -266,7 +270,7 @@ function renderCapture(){
  </div><div class="card"><h3>Modelo ativo</h3><div id="templatePreview" class="template-preview"><b>${TEMPLATES[current]?.name||'Essencial'}</b><p class="muted">${TEMPLATES[current]?.description||''}</p></div><p class="muted">A identidade do técnico é obrigatória e fica vinculada visualmente à foto registrada.</p></div></div>`;
  const pn=$('#pointName'),hint=$('#pointNameHint');
  pn.addEventListener('input',()=>{const start=pn.selectionStart,end=pn.selectionEnd;pn.value=pn.value.toLocaleUpperCase('pt-BR');try{pn.setSelectionRange(start,end)}catch{}hint.textContent=pn.value.trim()?'Identificação informada.':'Informe a identificação antes da foto.';updateCaptureReady()});
- $('#take').onclick=takePhoto;$('#retake').onclick=retake;$('#gps').onclick=getGps;$('#retrySensors').onclick=startCameraAndGps;
+ $('#take').onclick=takePhoto;$('#retake').onclick=retake;$('#gps').onclick=getGps;$('#retrySensors').onclick=startCameraAndGps;$('#flashToggle').onclick=toggleTorch;
  $('#templateSelect').onchange=e=>{const t=TEMPLATES[e.target.value];$('#templateHint').textContent=t?.description||'';$('#templatePreview').innerHTML=`<b>${t?.name||''}</b><p class="muted">${t?.description||''}</p>`}
  updateCaptureReady();
 }
@@ -294,7 +298,7 @@ async function startCamera(){
   await new Promise((resolve,reject)=>{const done=()=>{cleanup();resolve()};const fail=()=>{cleanup();reject(new Error('A câmera não iniciou.'))};const cleanup=()=>{v.removeEventListener('loadedmetadata',done);v.removeEventListener('error',fail)};v.addEventListener('loadedmetadata',done,{once:true});v.addEventListener('error',fail,{once:true});setTimeout(done,1800)});
   await v.play();await new Promise(r=>setTimeout(r,120));
   if(!v.videoWidth)throw new Error('Prévia da câmera não disponível.');
-  set('ok','Câmera pronta');updateCaptureReady();return true
+  set('ok','Câmera pronta');await detectTorch();updateCaptureReady();return true
  }catch(e){
   const denied=e?.name==='NotAllowedError'||e?.name==='SecurityError';
   set('error',denied?'Permissão da câmera bloqueada. Toque em “Reativar câmera e GPS”.':'Falha ao abrir câmera: '+(e?.message||'erro'));
@@ -377,8 +381,8 @@ async function loadOsmSnapshot(lat,lng,w=700,h=420,z=18){
  return c
 }
 function loadImg(src,ms=5000){return new Promise((r,j)=>{const i=new Image(),timer=setTimeout(()=>{i.src='';j(new Error('Tempo esgotado ao carregar imagem'))},ms);i.onload=()=>{clearTimeout(timer);r(i)};i.onerror=e=>{clearTimeout(timer);j(e)};i.src=src})}
-function captureUi(){const v=$('#camera'),p=$('#preview');p.src=photo||raw;p.classList.remove('hidden');v.classList.add('hidden');$('#take').classList.add('hidden');$('#retake').classList.remove('hidden');$('#shareActions').classList.remove('hidden');$('#shareBtn').onclick=shareCurrent;$('#downloadBtn').onclick=downloadCurrentPhoto}
-function retake(){raw='';photo='';savedPhotoKey='';saving=false;$('#preview').classList.add('hidden');$('#camera').classList.remove('hidden');$('#take').classList.remove('hidden');$('#retake').classList.add('hidden');$('#shareActions').classList.add('hidden');$('#saveStatus').textContent='Aguardando nova foto...';startCamera();getGps()}
+function captureUi(){const v=$('#camera'),p=$('#preview');p.src=photo||raw;p.classList.remove('hidden');v.classList.add('hidden');$('#flashToggle')?.classList.add('hidden');$('#take').classList.add('hidden');$('#retake').classList.remove('hidden');$('#shareActions').classList.remove('hidden');$('#shareBtn').onclick=shareCurrent;$('#downloadBtn').onclick=downloadCurrentPhoto}
+function retake(){raw='';photo='';savedPhotoKey='';saving=false;$('#preview').classList.add('hidden');$('#camera').classList.remove('hidden');$('#flashToggle')?.classList.remove('hidden');$('#take').classList.remove('hidden');$('#retake').classList.add('hidden');$('#shareActions').classList.add('hidden');$('#saveStatus').textContent='Aguardando nova foto...';startCamera();getGps()}
 async function getGps(){
  const el=$('#gpsInfo'),state=$('#gpsState');const set=(kind,msg)=>{if(state){state.className='sensor-state '+kind;state.querySelector('span').textContent=msg}if(el)el.textContent=msg};
  geo=null;updateCaptureReady();

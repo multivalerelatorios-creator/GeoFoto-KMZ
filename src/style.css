@@ -213,3 +213,15 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-ser
 .records-filter-count{display:grid;justify-items:end;gap:1px}.records-filter-count b{font-size:23px}.records-filter-count span{font-size:11px;color:var(--gf-muted)}
 .record-technician{display:flex;gap:6px;align-items:center;margin-top:6px;font-size:12px}.record-technician span{color:var(--gf-muted)}.record-technician b{color:#b9d6ff}
 @media(max-width:600px){.records-toolbar{align-items:stretch;flex-direction:column}.records-toolbar label{min-width:0}.records-filter-count{grid-auto-flow:column;justify-content:start;align-items:baseline;gap:6px}.records-filter-count b{font-size:18px}}
+
+/* ===== SENHA VISIVEL + FLASH DA CAMERA ===== */
+.password-input-wrap{position:relative;display:flex;align-items:center}
+.password-input-wrap input{width:100%;padding-right:52px}
+.password-toggle{position:absolute;right:8px;width:38px;height:38px;border:0;border-radius:9px;background:rgba(255,255,255,.09);color:#fff;display:grid;place-items:center;font-size:18px;cursor:pointer}
+.password-toggle:hover{background:rgba(255,255,255,.15)}
+.camera-preview-wrap{position:relative}
+.camera-preview-wrap .camera-large{display:block}
+.flash-toggle{position:absolute;top:12px;right:12px;z-index:8;border:1px solid rgba(255,255,255,.24);border-radius:999px;padding:9px 12px;background:rgba(7,17,29,.78);color:#fff;font-weight:750;box-shadow:0 8px 24px rgba(0,0,0,.32);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.flash-toggle.active{background:#f59e0b;color:#111827;border-color:#ffd36b;box-shadow:0 8px 28px rgba(245,158,11,.35)}
+.flash-toggle:disabled{opacity:.48;cursor:not-allowed}
+@media(max-width:560px){.flash-toggle{top:10px;right:10px;padding:10px 13px;font-size:13px}.password-toggle{width:40px;height:40px}}
