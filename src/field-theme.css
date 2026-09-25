@@ -252,3 +252,86 @@ button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}button{cu
 .download-toast b{font-size:15px;color:#8ef0b0}
 .download-toast span{font-size:12px;color:#fff;font-weight:750;overflow-wrap:anywhere}
 .download-toast small{font-size:11px;color:#b8cad9;line-height:1.4}
+
+/* ===== EDICAO ADMIN DE REGISTRO 2026-09-25 ===== */
+.record-edit-gate{
+ position:fixed;
+ inset:0;
+ z-index:10000;
+ display:grid;
+ place-items:center;
+ padding:18px;
+ background:rgba(2,8,16,.78);
+ backdrop-filter:blur(10px);
+ -webkit-backdrop-filter:blur(10px);
+}
+.record-edit-card{
+ width:min(520px,96vw);
+ max-height:92vh;
+ overflow:auto;
+ padding:22px;
+ border:1px solid rgba(255,255,255,.12);
+ border-radius:20px;
+ background:linear-gradient(180deg,#10273d,#071725);
+ box-shadow:0 28px 90px rgba(0,0,0,.55);
+}
+.record-edit-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
+.record-edit-head>div{min-width:0}
+.record-edit-head span{
+ font-size:10px;
+ font-weight:850;
+ letter-spacing:.12em;
+ color:#79b6ff;
+}
+.record-edit-head h3{margin:4px 0 3px;font-size:22px}
+.record-edit-head p{
+ margin:0;
+ color:#c5d8e8;
+ font-size:12px;
+ overflow-wrap:anywhere;
+}
+.record-edit-close{
+ flex:0 0 40px;
+ width:40px;
+ height:40px;
+ border:1px solid rgba(255,255,255,.14);
+ border-radius:50%;
+ background:rgba(255,255,255,.06);
+ color:#fff;
+ font-size:24px;
+ cursor:pointer;
+}
+.record-edit-lock{
+ margin:15px 0;
+ padding:11px 12px;
+ border:1px solid rgba(96,165,250,.20);
+ border-radius:11px;
+ background:rgba(37,99,235,.08);
+ color:#cfe3f6;
+ font-size:12px;
+ line-height:1.5;
+}
+.record-edit-card form{display:grid;gap:13px}
+.record-edit-card .field{display:grid;gap:7px}
+.record-edit-card input,.record-edit-card textarea{
+ width:100%;
+ box-sizing:border-box;
+ background:#0b2235;
+ color:#fff;
+ border:1px solid #31536d;
+ border-radius:10px;
+ padding:12px;
+ font:inherit;
+}
+.record-edit-card textarea{resize:vertical;min-height:100px}
+.record-edit-actions{display:grid;grid-template-columns:1fr 1.35fr;gap:9px;margin-top:2px}
+.record-edit-actions .btn{min-height:46px}
+@media(max-width:520px){
+ .record-edit-gate{padding:10px}
+ .record-edit-card{padding:18px 14px;border-radius:16px}
+ .record-edit-head h3{font-size:20px}
+ .record-edit-actions{grid-template-columns:1fr}
+ .record-edit-actions .primary{order:-1}
+ .record-card .actions{flex-wrap:wrap}
+ .record-card .actions .btn{flex:1 1 calc(50% - 5px)}
+}

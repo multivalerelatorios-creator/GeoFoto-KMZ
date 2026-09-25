@@ -6,7 +6,7 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.4'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.5'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
@@ -85,7 +85,7 @@ async function pendingDelete(id){const db=await offlineDb();return new Promise((
 async function snapshotGet(){const db=await offlineDb();return new Promise((resolve,reject)=>{const r=db.transaction('snapshots').objectStore('snapshots').get(tenant);r.onsuccess=()=>resolve(r.result?.points||[]);r.onerror=()=>reject(r.error)})}
 async function snapshotPut(list){const db=await offlineDb();const safe=(list||[]).map(p=>{const q={...p};delete q.photo;delete q._pending;return q});return new Promise((resolve,reject)=>{const tx=db.transaction('snapshots','readwrite');tx.objectStore('snapshots').put({tenant,points:safe,updatedAt:Date.now()});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
 async function requestPersistentStorage(){try{if(navigator.storage?.persist)await navigator.storage.persist()}catch{}}
-function mergePoints(cloud,pending){const m=new Map();for(const p of cloud||[])m.set(p.id,p);for(const p of pending||[])if(!m.has(p.id))m.set(p.id,{...p,_pending:true});return [...m.values()].sort((a,b)=>String(a.time).localeCompare(String(b.time)))}
+function mergePoints(cloud,pending){const m=new Map();for(const p of cloud||[])m.set(p.id,p);for(const p of pending||[])m.set(p.id,{...p,_pending:true});return [...m.values()].sort((a,b)=>String(a.time).localeCompare(String(b.time)))}
 async function updatePendingStatus(mode=''){
  cloudPending=(await pendingAll().catch(()=>[])).length;
  paintCloudDemo(mode);
@@ -531,6 +531,46 @@ async function shareCurrent(){const src=photo||raw;if(!src)return;const point=($
 async function shareRecord(id){const p=points.find(x=>x.id===id);if(!p)return;const data={name:p.name,note:p.note,lat:p.lat,lng:p.lng,technician:p.technician||''};if(p.photo)return shareBlob(dataToBlob(p.photo),`${safeName(p.name)}.jpg`,data);if(p.photoUrl){const b=await apiBlob(p.photoUrl);return shareBlob(b,`${safeName(p.name)}.jpg`,data)}}
 async function shareBlob(blob,name,data={}){const f=new File([blob],name,{type:'image/jpeg'}),text=shareMessage(data),url=googleMapsLink(data.lat,data.lng),payload={title:'GeoFoto KMZ',text,files:[f]};if(navigator.canShare&&navigator.canShare({files:[f]})){try{return await navigator.share(payload)}catch(e){if(e?.name==='AbortError')return;try{return await navigator.share({title:'GeoFoto KMZ',text,files:[f]})}catch(e2){if(e2?.name==='AbortError')return}}}saveBlob(blob,name);if(url){try{await navigator.clipboard.writeText(text);alert('Foto salva. O link do Google Maps foi copiado para você enviar junto.')}catch{alert('Foto salva. Local: '+url)}}}
 async function openRecordPhoto(id){const p=points.find(x=>x.id===id);if(!p)return;let src=p.photo||'',revoke='';try{if(!src&&p.photoUrl){const b=await apiBlob(p.photoUrl);src=URL.createObjectURL(b);revoke=src}if(!src)return;const box=document.createElement('div');box.className='photo-lightbox';const img=document.createElement('img');img.src=src;img.alt='Foto '+p.name;const meta=document.createElement('div');meta.className='photo-lightbox-meta';meta.innerHTML='<b>'+esc(p.name)+'</b><span>'+esc(fmt(p.time))+' · '+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6)+'</span>';const close=document.createElement('button');close.className='photo-lightbox-close';close.textContent='×';const done=()=>{box.remove();if(revoke)URL.revokeObjectURL(revoke)};close.onclick=done;box.onclick=e=>{if(e.target===box)done()};box.append(close,img,meta);document.body.appendChild(box)}catch(e){alert('Não foi possível abrir a foto: '+e.message)}}
+function recordDateTimeLocal(v){
+ const d=new Date(v);if(Number.isNaN(d.getTime()))return '';
+ const local=new Date(d.getTime()-d.getTimezoneOffset()*60000);
+ return local.toISOString().slice(0,16)
+}
+function openRecordEdit(id){
+ if(role!=='admin')return;
+ const p=points.find(x=>x.id===id);if(!p)return;
+ document.querySelector('.record-edit-gate')?.remove();
+ const gate=document.createElement('div');gate.className='record-edit-gate';
+ gate.innerHTML=`<div class="record-edit-card"><div class="record-edit-head"><div><span>ADMINISTRADOR</span><h3>Editar registro</h3><p>${esc(p.name)}</p></div><button type="button" class="record-edit-close" aria-label="Fechar">×</button></div><div class="record-edit-lock">Somente <b>data/hora</b> e <b>descrição</b> podem ser alteradas. Ponto, GPS, mapa, técnico e identificação permanecem inalterados.</div><form id="recordEditForm"><label class="field"><b>Data e hora</b><input id="recordEditTime" type="datetime-local" value="${attr(recordDateTimeLocal(p.time))}" required></label><label class="field"><b>Descrição</b><textarea id="recordEditNote" rows="4" placeholder="Descrição do registro">${esc(p.note||'')}</textarea></label><div id="recordEditMsg" class="muted small"></div><div class="record-edit-actions"><button type="button" class="btn secondary" id="recordEditCancel">Cancelar</button><button type="submit" class="btn primary" id="recordEditSave">Salvar alterações</button></div></form></div>`;
+ document.body.appendChild(gate);
+ const close=()=>gate.remove();
+ gate.querySelector('.record-edit-close').onclick=close;
+ gate.querySelector('#recordEditCancel').onclick=close;
+ gate.onclick=e=>{if(e.target===gate)close()};
+ gate.querySelector('#recordEditForm').onsubmit=async e=>{
+  e.preventDefault();
+  const dt=gate.querySelector('#recordEditTime'),note=gate.querySelector('#recordEditNote'),msg=gate.querySelector('#recordEditMsg'),btn=gate.querySelector('#recordEditSave');
+  const when=new Date(dt.value);if(!dt.value||Number.isNaN(when.getTime())){msg.textContent='Informe uma data e hora válidas.';return}
+  const updated={...p,time:when.toISOString(),note:note.value.trim()};delete updated._pending;delete updated._tenant;
+  btn.disabled=true;btn.textContent='Salvando...';msg.textContent='Salvando alteração sem modificar localização ou ponto...';
+  try{
+   await pendingPut(updated);
+   points=points.map(x=>x.id===id?{...updated,_pending:true}:x).sort((a,b)=>String(a.time).localeCompare(String(b.time)));
+   await snapshotPut(points).catch(()=>{});
+   renderDashboard();renderRecords();renderExport();await updatePendingStatus();
+   if(navigator.onLine&&!isPersonalMode()){
+    msg.textContent='Sincronizando alteração com a nuvem...';
+    await syncPendingQueue().catch(()=>{});
+   }
+   const stillPending=(await pendingAll().catch(()=>[])).some(x=>x.id===id);
+   close();
+   if(stillPending)alert('Alteração salva no aparelho. Ela será enviada para a nuvem automaticamente quando a conexão permitir.');
+  }catch(err){
+   msg.textContent='Não foi possível salvar a alteração: '+(err?.message||'erro');
+   btn.disabled=false;btn.textContent='Salvar alterações'
+  }
+ }
+}
 function renderRecords(){
  const techs=[...new Set(points.map(p=>String(p.technician||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
  const hasUnknown=points.some(p=>!String(p.technician||'').trim());
@@ -538,12 +578,13 @@ function renderRecords(){
  let filtered=recordTechnicianFilter==='__unknown__'?points.filter(p=>!String(p.technician||'').trim()):recordTechnicianFilter?points.filter(p=>String(p.technician||'').trim()===recordTechnicianFilter):points;
  if(recordDateFilter==='today')filtered=filtered.filter(p=>new Date(p.time).toLocaleDateString('pt-BR')===new Date().toLocaleDateString('pt-BR'));
  const options='<option value="">Todos os técnicos</option>'+techs.map(n=>'<option value="'+attr(n)+'" '+(recordTechnicianFilter===n?'selected':'')+'>'+esc(n)+'</option>').join('')+(hasUnknown?'<option value="__unknown__" '+(recordTechnicianFilter==='__unknown__'?'selected':'')+'>Registro antigo sem identidade</option>':'');
- $('#records').innerHTML='<div class="record-tabs"><button id="recordsAll" class="'+(!recordDateFilter&&!recordTechnicianFilter?'active':'')+'">Todos</button><button id="recordsToday" class="'+(recordDateFilter==='today'?'active':'')+'">Hoje</button><button id="recordsByTech" class="'+(recordTechnicianFilter?'active':'')+'">Por técnico</button></div><div class="records-toolbar"><label><span>Filtrar por técnico</span><select id="technicianFilter">'+options+'</select></label><div class="records-filter-count"><b>'+filtered.length+'</b><span>de '+points.length+' registros</span></div></div><div class="records-list">'+(filtered.slice().reverse().map(p=>'<div class="card record-card '+((p.photo||p.photoUrl)?'has-photo':'')+'"><div class="record-head"><div><b>'+esc(p.name)+'</b><div class="muted small">'+fmt(p.time)+' · '+esc(p.city||'')+'</div><div class="record-technician"><span>Técnico:</span><b>'+esc(p.technician||'Registro antigo sem identidade')+'</b></div></div><span class="badge">'+Math.round(p.accuracy||0)+' m</span></div>'+((p.photo||p.photoUrl)?'<img class="record-photo" data-photo-id="'+p.id+'" loading="lazy" alt="Foto de '+attr(p.name)+'">':'')+'<div class="record-note"><b>Descrição:</b><span>'+esc(p.note||'Sem descrição informada.')+'</span></div><div class="muted small">'+esc(p.address||'Sem endereço')+'</div><div class="muted small">'+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6)+'</div><div class="actions"><button class="btn secondary" data-map="'+p.lat+','+p.lng+'">Abrir Maps</button>'+((p.photo||p.photoUrl)?'<button class="btn primary" data-share="'+p.id+'">Enviar</button>':'')+(role==='admin'?'<button class="btn secondary" data-delete="'+p.id+'">Excluir</button>':'')+'</div></div>').join('')||'<div class="card">Nenhum registro encontrado neste filtro.</div>')+'</div>';
+ $('#records').innerHTML='<div class="record-tabs"><button id="recordsAll" class="'+(!recordDateFilter&&!recordTechnicianFilter?'active':'')+'">Todos</button><button id="recordsToday" class="'+(recordDateFilter==='today'?'active':'')+'">Hoje</button><button id="recordsByTech" class="'+(recordTechnicianFilter?'active':'')+'">Por técnico</button></div><div class="records-toolbar"><label><span>Filtrar por técnico</span><select id="technicianFilter">'+options+'</select></label><div class="records-filter-count"><b>'+filtered.length+'</b><span>de '+points.length+' registros</span></div></div><div class="records-list">'+(filtered.slice().reverse().map(p=>'<div class="card record-card '+((p.photo||p.photoUrl)?'has-photo':'')+'"><div class="record-head"><div><b>'+esc(p.name)+'</b><div class="muted small">'+fmt(p.time)+' · '+esc(p.city||'')+'</div><div class="record-technician"><span>Técnico:</span><b>'+esc(p.technician||'Registro antigo sem identidade')+'</b></div></div><span class="badge">'+Math.round(p.accuracy||0)+' m</span></div>'+((p.photo||p.photoUrl)?'<img class="record-photo" data-photo-id="'+p.id+'" loading="lazy" alt="Foto de '+attr(p.name)+'">':'')+'<div class="record-note"><b>Descrição:</b><span>'+esc(p.note||'Sem descrição informada.')+'</span></div><div class="muted small">'+esc(p.address||'Sem endereço')+'</div><div class="muted small">'+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6)+'</div><div class="actions"><button class="btn secondary" data-map="'+p.lat+','+p.lng+'">Abrir Maps</button>'+((p.photo||p.photoUrl)?'<button class="btn primary" data-share="'+p.id+'">Enviar</button>':'')+(role==='admin'?'<button class="btn secondary" data-edit="'+p.id+'">Editar</button><button class="btn secondary" data-delete="'+p.id+'">Excluir</button>':'')+'</div></div>').join('')||'<div class="card">Nenhum registro encontrado neste filtro.</div>')+'</div>';
  $('#recordsAll').onclick=()=>{recordDateFilter='';recordTechnicianFilter='';renderRecords()};$('#recordsToday').onclick=()=>{recordDateFilter='today';renderRecords()};$('#recordsByTech').onclick=()=>$('#technicianFilter').focus();
  const filter=$('#technicianFilter');if(filter)filter.onchange=()=>{recordTechnicianFilter=filter.value;renderRecords()};
  document.querySelectorAll('[data-photo-id]').forEach(async img=>{const p=points.find(x=>x.id===img.dataset.photoId);try{if(p?.photo)img.src=p.photo;else if(p?.photoUrl){const b=await apiBlob(p.photoUrl),u=URL.createObjectURL(b);img.src=u;img.onload=()=>setTimeout(()=>URL.revokeObjectURL(u),30000)}}catch{img.alt='Foto indisponível'}});
  document.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>window.open('https://www.google.com/maps?q='+b.dataset.map,'_blank'));
  document.querySelectorAll('[data-share]').forEach(b=>b.onclick=()=>shareRecord(b.dataset.share));
+ document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openRecordEdit(b.dataset.edit));
  document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(!confirm('Excluir este registro e a foto?'))return;try{await api('/points/'+b.dataset.delete,{method:'DELETE'});await syncDown();renderDashboard();renderRecords();renderExport();if(map)initMap()}catch(e){alert(e.message)}})
 }
 function setMapView(list){
