@@ -6,7 +6,7 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.6'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.7'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
@@ -98,7 +98,7 @@ async function api(path,opt={}){
  catch(e){if(e?.name==='AbortError')throw Error('Tempo esgotado na conexão');throw e}
  finally{clearTimeout(timer)}
 }
-async function apiBlob(path){const h={};if(token)h.Authorization=`Bearer ${token}`;const url=path.startsWith('/api/')?path:'/api'+path,ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),10000);try{const r=await fetch(url,{headers:h,signal:ctrl.signal});if(!r.ok)throw Error('Falha ao carregar foto');return r.blob()}finally{clearTimeout(timer)}}
+async function apiBlob(path){const h={};if(token)h.Authorization=`Bearer ${token}`;const base=path.startsWith('/api/')?path:'/api'+path,url=base+(base.includes('?')?'&':'?')+'_v='+Date.now(),ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),12000);try{const r=await fetch(url,{headers:h,signal:ctrl.signal,cache:'no-store'});if(!r.ok)throw Error('Falha ao carregar foto');return r.blob()}finally{clearTimeout(timer)}}
 function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}torchOn=false;torchSupported=false;updateTorchButton()}
 function updateTorchButton(){const b=$('#flashToggle');if(!b)return;b.disabled=!torchSupported;b.classList.toggle('active',torchOn);b.innerHTML=torchOn?'🔦 Flash ligado':'⚡ Flash';b.title=torchSupported?'Ligar ou desligar o flash da câmera':'Flash não disponível nesta câmera'}
 async function detectTorch(){const t=stream?.getVideoTracks?.()[0];let caps={};try{caps=t?.getCapabilities?.()||{}}catch{}torchSupported=!!(t&&caps.torch);torchOn=false;updateTorchButton();return torchSupported}
@@ -588,13 +588,24 @@ function openRecordEdit(id){
    points=points.map(x=>x.id===id?{...updated,_pending:true}:x).sort((a,b)=>String(a.time).localeCompare(String(b.time)));
    await snapshotPut(points).catch(()=>{});
    renderDashboard();renderRecords();renderExport();await updatePendingStatus();
+   let cloudSaved=false;
    if(navigator.onLine&&!isPersonalMode()){
-    msg.textContent='Sincronizando alteração com a nuvem...';
-    await syncPendingQueue().catch(()=>{});
+    msg.textContent='Substituindo a foto editada na nuvem...';
+    try{
+     const clean={...updated};delete clean._pending;delete clean._tenant;
+     await api('/points',{method:'POST',body:JSON.stringify(clean),timeout:30000});
+     await pendingDelete(id).catch(()=>{});
+     cloudSaved=true;
+     await syncDown().catch(()=>{});
+     renderDashboard();renderRecords();renderExport();
+    }catch(err){
+     console.warn('Alteração ficou pendente para sincronização',err)
+    }
    }
    const stillPending=(await pendingAll().catch(()=>[])).some(x=>x.id===id);
    close();
-   if(stillPending)alert('Alteração salva no aparelho. Ela será enviada para a nuvem automaticamente quando a conexão permitir.');
+   if(cloudSaved)alert('Data, hora e descrição atualizadas também na foto.');
+   else if(stillPending)alert('A foto editada ficou salva no aparelho e será enviada para a nuvem automaticamente quando a conexão permitir.');
   }catch(err){
    msg.textContent='Não foi possível salvar a alteração: '+(err?.message||'erro');
    btn.disabled=false;btn.textContent='Salvar alterações'
@@ -611,7 +622,7 @@ function renderRecords(){
  $('#records').innerHTML='<div class="record-tabs"><button id="recordsAll" class="'+(!recordDateFilter&&!recordTechnicianFilter?'active':'')+'">Todos</button><button id="recordsToday" class="'+(recordDateFilter==='today'?'active':'')+'">Hoje</button><button id="recordsByTech" class="'+(recordTechnicianFilter?'active':'')+'">Por técnico</button></div><div class="records-toolbar"><label><span>Filtrar por técnico</span><select id="technicianFilter">'+options+'</select></label><div class="records-filter-count"><b>'+filtered.length+'</b><span>de '+points.length+' registros</span></div></div><div class="records-list">'+(filtered.slice().reverse().map(p=>'<div class="card record-card '+((p.photo||p.photoUrl)?'has-photo':'')+'"><div class="record-head"><div><b>'+esc(p.name)+'</b><div class="muted small">'+fmt(p.time)+' · '+esc(p.city||'')+'</div><div class="record-technician"><span>Técnico:</span><b>'+esc(p.technician||'Registro antigo sem identidade')+'</b></div></div><span class="badge">'+Math.round(p.accuracy||0)+' m</span></div>'+((p.photo||p.photoUrl)?'<img class="record-photo" data-photo-id="'+p.id+'" loading="lazy" alt="Foto de '+attr(p.name)+'">':'')+'<div class="record-note"><b>Descrição:</b><span>'+esc(p.note||'Sem descrição informada.')+'</span></div><div class="muted small">'+esc(p.address||'Sem endereço')+'</div><div class="muted small">'+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6)+'</div><div class="actions"><button class="btn secondary" data-map="'+p.lat+','+p.lng+'">Abrir Maps</button>'+((p.photo||p.photoUrl)?'<button class="btn primary" data-share="'+p.id+'">Enviar</button>':'')+(role==='admin'?'<button class="btn secondary" data-edit="'+p.id+'">Editar</button><button class="btn secondary" data-delete="'+p.id+'">Excluir</button>':'')+'</div></div>').join('')||'<div class="card">Nenhum registro encontrado neste filtro.</div>')+'</div>';
  $('#recordsAll').onclick=()=>{recordDateFilter='';recordTechnicianFilter='';renderRecords()};$('#recordsToday').onclick=()=>{recordDateFilter='today';renderRecords()};$('#recordsByTech').onclick=()=>$('#technicianFilter').focus();
  const filter=$('#technicianFilter');if(filter)filter.onchange=()=>{recordTechnicianFilter=filter.value;renderRecords()};
- document.querySelectorAll('[data-photo-id]').forEach(async img=>{const p=points.find(x=>x.id===img.dataset.photoId);try{if(p?.photo)img.src=p.photo;else if(p?.photoUrl){const b=await apiBlob(p.photoUrl),u=URL.createObjectURL(b);img.src=u;img.onload=()=>setTimeout(()=>URL.revokeObjectURL(u),30000)}}catch{img.alt='Foto indisponível'}});
+ document.querySelectorAll('[data-photo-id]').forEach(async img=>{const p=points.find(x=>x.id===img.dataset.photoId);try{if(p?.photo)img.src=p.photo;else if(p?.photoUrl){const b=await apiBlob(p.photoUrl),u=URL.createObjectURL(b);img.src=u;img.dataset.loadedVersion=String(p.time||Date.now());img.onload=()=>setTimeout(()=>URL.revokeObjectURL(u),30000)}}catch{img.alt='Foto indisponível'}});
  document.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>window.open('https://www.google.com/maps?q='+b.dataset.map,'_blank'));
  document.querySelectorAll('[data-share]').forEach(b=>b.onclick=()=>shareRecord(b.dataset.share));
  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openRecordEdit(b.dataset.edit));

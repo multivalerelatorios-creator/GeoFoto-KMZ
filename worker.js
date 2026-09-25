@@ -243,7 +243,7 @@ async function getPhoto(url,env,s){
  if(!row?.photo_key)return new Response('Não encontrada',{status:404})
  const obj=await env.PHOTOS.get(row.photo_key)
  if(!obj)return new Response('Não encontrada',{status:404})
- return new Response(obj.body,{headers:{'content-type':obj.httpMetadata?.contentType||'image/jpeg','cache-control':'private, max-age=3600'}})
+ return new Response(obj.body,{headers:{'content-type':obj.httpMetadata?.contentType||'image/jpeg','cache-control':'no-store, no-cache, must-revalidate','pragma':'no-cache','expires':'0'}})
 }
 
 function htmlEscape(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
