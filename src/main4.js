@@ -6,7 +6,7 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.7'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.8'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
@@ -539,30 +539,39 @@ function recordDateTimeLocal(v){
 async function redrawEditedRecordPhoto(p){
  let src=p.photo||'';
  if(!src&&p.photoUrl){const b=await apiBlob(p.photoUrl);src=await fileData(b)}
- if(!src)throw Error('Foto original do registro não está disponível.');
+ if(!src)throw Error('Foto do registro não está disponível.');
  const img=await loadImg(src,8000),c=document.createElement('canvas'),x=c.getContext('2d');
  c.width=img.naturalWidth||img.width;c.height=img.naturalHeight||img.height;x.drawImage(img,0,0,c.width,c.height);
- const pad=Math.round(c.width*.028),cardX=pad,cardW=c.width-pad*2,panelH=Math.round(c.height*.28),panelY=c.height-panelH-Math.round(pad*.55),radius=Math.round(pad*.75);
- const coverW=Math.round(cardW*.625);
+ const pad=Math.round(c.width*.028),cardX=pad,cardW=c.width-pad*2,panelH=Math.round(c.height*.285),panelY=c.height-panelH-Math.round(pad*.55),radius=Math.round(pad*.75);
  x.save();
  if(x.roundRect){x.beginPath();x.roundRect(cardX,panelY,cardW,panelH,radius);x.clip()}
- x.fillStyle='rgba(7,18,31,.985)';x.fillRect(cardX,panelY,coverW,panelH);
+ x.fillStyle='#07121f';x.fillRect(cardX,panelY,cardW,panelH);
  x.restore();
- const textX=cardX+pad,textW=Math.round(cardW*.52),d=new Date(p.time),timeText=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),dateText=d.toLocaleDateString('pt-BR');
- const fg='#fff',muted='#d9e3ec',line=Math.round(panelH*.088);
- x.fillStyle=fg;x.font='800 '+Math.max(30,Math.round(c.width*.034))+'px Arial';x.fillText(String(p.name||'Ponto').toLocaleUpperCase('pt-BR'),textX,panelY+Math.round(panelH*.12),textW);
- x.fillStyle=muted;x.font='700 '+Math.max(20,Math.round(c.width*.019))+'px Arial';x.fillText('Nome: '+String(p.technician||'').trim(),textX,panelY+Math.round(panelH*.23),textW);
- x.fillStyle=fg;x.font='850 '+Math.max(44,Math.round(c.width*.044))+'px Arial';x.fillText(timeText,textX,panelY+Math.round(panelH*.40),textW);
- x.fillStyle=muted;x.font='700 '+Math.max(21,Math.round(c.width*.019))+'px Arial';x.fillText(dateText,textX,panelY+Math.round(panelH*.51),textW);
- x.font='650 '+Math.max(19,Math.round(c.width*.0175))+'px Arial';
- let y=panelY+Math.round(panelH*.62);
+ const mapW=Math.round(cardW*.31),mapH=Math.round(panelH*.72),mapX=cardX+cardW-pad-mapW,mapY=panelY+Math.round(panelH*.10);
+ try{
+  const mapImg=await loadOsmSnapshot(Number(p.lat),Number(p.lng),Math.max(420,Math.round(mapW*1.08)),Math.max(300,Math.round(mapH*1.08)),17);
+  x.save();if(x.roundRect){x.beginPath();x.roundRect(mapX,mapY,mapW,mapH,Math.round(mapW*.035));x.clip()}x.drawImage(mapImg,mapX,mapY,mapW,mapH);x.restore();
+  const cx=mapX+mapW/2,cy=mapY+mapH/2;x.fillStyle='rgba(37,99,235,.22)';x.beginPath();x.arc(cx,cy,Math.max(24,mapW*.07),0,Math.PI*2);x.fill();x.fillStyle='#2563eb';x.beginPath();x.arc(cx,cy,Math.max(10,mapW*.026),0,Math.PI*2);x.fill();x.strokeStyle='#fff';x.lineWidth=Math.max(3,mapW*.006);x.stroke();
+ }catch{}
+ const textX=cardX+pad,textW=Math.round(cardW*.57),d=new Date(p.time),timeText=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),dateText=d.toLocaleDateString('pt-BR');
+ const fg='#fff',muted='#d9e3ec';
+ x.fillStyle=fg;x.font='800 '+Math.max(30,Math.round(c.width*.032))+'px Arial';x.fillText(String(p.name||'Ponto').toLocaleUpperCase('pt-BR'),textX,panelY+Math.round(panelH*.115),textW);
+ x.fillStyle=muted;x.font='700 '+Math.max(19,Math.round(c.width*.018))+'px Arial';x.fillText('Nome: '+String(p.technician||'').trim(),textX,panelY+Math.round(panelH*.215),textW);
+ x.fillStyle=fg;x.font='850 '+Math.max(42,Math.round(c.width*.043))+'px Arial';x.fillText(timeText,textX,panelY+Math.round(panelH*.385),textW);
+ x.fillStyle=muted;x.font='700 '+Math.max(20,Math.round(c.width*.0185))+'px Arial';x.fillText(dateText,textX,panelY+Math.round(panelH*.485),textW);
+ x.font='650 '+Math.max(18,Math.round(c.width*.0165))+'px Arial';
+ const line=Math.round(panelH*.073);let y=panelY+Math.round(panelH*.60);
  y=drawWrappedText(x,'GPS: '+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6),textX,y,textW,line,1);
  y=drawWrappedText(x,'Precisão: '+Math.round(p.accuracy||0)+' m  •  '+(p.city||'Não identificada'),textX,y,textW,line,1);
- const addr=String(p.address||'Não identificado').replace(/,\s*Regi[aã]o\s+Sul,?/i,'').replace(/,\s*Brasil$/i,'').replace(/,\s*$/,'').slice(0,92);
+ const addr=String(p.address||'Não identificado').replace(/,\s*Regi[aã]o\s+Sul,?/i,'').replace(/,\s*Brasil$/i,'').replace(/,\s*$/,'').slice(0,88);
  y=drawWrappedText(x,'Endereço: '+addr,textX,y,textW,line,2);
- if(p.note){x.fillStyle=fg;drawWrappedText(x,'Obs.: '+String(p.note).slice(0,90),textX,Math.min(y,panelY+panelH-Math.round(line*1.15)),textW,line,1)}
- x.fillStyle='#22c55e';x.beginPath();x.arc(textX,panelY+panelH-Math.round(pad*.65),Math.max(6,Math.round(c.width*.0055)),0,Math.PI*2);x.fill();
- x.fillStyle=muted;x.font='600 '+Math.max(14,Math.round(c.width*.013))+'px Arial';x.fillText('GPS OK • Foto registrada',textX+Math.round(pad*.5),panelY+panelH-Math.round(pad*.48),textW);
+ if(p.note){
+  const noteY=Math.min(y,panelY+Math.round(panelH*.88));
+  x.fillStyle=fg;x.font='700 '+Math.max(18,Math.round(c.width*.0165))+'px Arial';
+  drawWrappedText(x,'Obs.: '+String(p.note).trim().slice(0,72),textX,noteY,textW,line,1)
+ }
+ const footerY=panelY+panelH-Math.round(pad*.48);x.fillStyle='#22c55e';x.beginPath();x.arc(textX,footerY,Math.max(6,Math.round(c.width*.0055)),0,Math.PI*2);x.fill();
+ x.fillStyle=muted;x.font='600 '+Math.max(13,Math.round(c.width*.0125))+'px Arial';x.fillText('GPS OK • Foto registrada',textX+Math.round(pad*.5),footerY+Math.round(pad*.12),textW);
  return c.toDataURL('image/jpeg',.9)
 }
 function openRecordEdit(id){
