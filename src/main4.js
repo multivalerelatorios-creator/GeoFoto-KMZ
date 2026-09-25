@@ -6,7 +6,7 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.2'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.3'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
@@ -360,7 +360,22 @@ async function startCamera(){
   updateCaptureReady();return false
  }
 }
-async function takePhoto(){if(!geo){await getGps();if(!geo){alert('É necessário obter o GPS antes de tirar a foto.');return}}const v0=$('#camera');if(!stream||!v0?.videoWidth){await startCamera();if(!stream||!$('#camera')?.videoWidth){alert('A câmera ainda não está pronta. Toque em Reativar câmera e GPS.');return}}const pn=$('#pointName');let pointName=(pn?.value.trim()||'').toLocaleUpperCase('pt-BR');if(!pointName){pointName=(window.prompt('Identificação do ponto\nEx.: CEO 80551 / POSTE 023','')||'').trim().toLocaleUpperCase('pt-BR');if(!pointName){const hint=$('#pointNameHint');if(hint)hint.textContent='⚠ É necessário informar a identificação antes da foto.';return}if(pn)pn.value=pointName;const hint=$('#pointNameHint');if(hint)hint.textContent='Identificação informada.'}const v=$('#camera'),c=$('#canvas');if(!v||!v.videoWidth)return;const portrait=innerHeight>innerWidth;const outW=portrait?1080:1920,outH=portrait?1440:1080;c.width=outW;c.height=outH;const sx=v.videoWidth,sy=v.videoHeight,src= sx/sy, dst=outW/outH;let sw=sx,sh=sy,ox=0,oy=0;if(src>dst){sw=Math.round(sy*dst);ox=Math.round((sx-sw)/2)}else{sh=Math.round(sx/dst);oy=Math.round((sy-sh)/2)}c.getContext('2d').drawImage(v,ox,oy,sw,sh,0,0,outW,outH);raw=c.toDataURL('image/jpeg',.9);savedPhotoKey=raw.slice(0,80)+Date.now();stopCamera();$('#saveStatus').textContent='Foto tirada. Preparando dados e salvamento automático...';await annotate();captureUi();await maybeAutoSave()}
+async function takePhoto(){
+ if(!geo){await getGps();if(!geo){alert('É necessário obter o GPS antes de tirar a foto.');return}}
+ const v0=$('#camera');if(!stream||!v0?.videoWidth){await startCamera();if(!stream||!$('#camera')?.videoWidth){alert('A câmera ainda não está pronta. Toque em Reativar câmera e GPS.');return}}
+ const pn=$('#pointName');let pointName=(pn?.value.trim()||'').toLocaleUpperCase('pt-BR');
+ if(!pointName){pointName=(window.prompt('Identificação do ponto\nEx.: CEO 80551 / POSTE 023','')||'').trim().toLocaleUpperCase('pt-BR');if(!pointName){const hint=$('#pointNameHint');if(hint)hint.textContent='⚠ É necessário informar a identificação antes da foto.';return}if(pn)pn.value=pointName;const hint=$('#pointNameHint');if(hint)hint.textContent='Identificação informada.'}
+ const v=$('#camera'),c=$('#canvas');if(!v||!v.videoWidth)return;
+ const portrait=innerHeight>innerWidth,outW=portrait?1080:1920,outH=portrait?1440:1080;c.width=outW;c.height=outH;
+ const sx=v.videoWidth,sy=v.videoHeight,src=sx/sy,dst=outW/outH;let sw=sx,sh=sy,ox=0,oy=0;
+ if(src>dst){sw=Math.round(sy*dst);ox=Math.round((sx-sw)/2)}else{sh=Math.round(sx/dst);oy=Math.round((sy-sh)/2)}
+ c.getContext('2d').drawImage(v,ox,oy,sw,sh,0,0,outW,outH);
+ raw=c.toDataURL('image/jpeg',.9);photo=raw;savedPhotoKey=raw.slice(0,80)+Date.now();stopCamera();
+ const st=$('#saveStatus');if(st)st.textContent='Foto tirada. Salvando registro...';
+ try{await annotate()}catch(e){console.warn('Falha ao aplicar informações na foto; salvando imagem original.',e);photo=raw}
+ captureUi();
+ await maybeAutoSave()
+}
 async function annotate(){
  if(!raw)return;
  const img=await loadImg(raw),c=document.createElement('canvas'),x=c.getContext('2d'),id=$('#templateSelect')?.value||cfg.defaultTemplate||'essential',t=TEMPLATES[id]||TEMPLATES.essential;
@@ -470,18 +485,43 @@ async function maybeAutoSave(){
  if(!photo||!geo||saving||!savedPhotoKey)return;
  const key=savedPhotoKey;saving=true;const st=$('#saveStatus');
  const p={id:crypto.randomUUID(),name:($('#pointName').value.trim()||`Ponto ${points.length+1}`).toLocaleUpperCase('pt-BR'),note:$('#note').value.trim(),technician:identity,lat:geo.latitude,lng:geo.longitude,accuracy:geo.accuracy,time:new Date().toISOString(),city:geo.city||'',address:geo.address||'',photo};
+ let staged=false,directCloud=false;
  try{
-  if(st)st.textContent='Salvando primeiro neste aparelho…';
-  await pendingPut(p);
-  points=mergePoints(points,[{...p,_pending:true}]);
-  cloudPending=(await pendingAll().catch(()=>[])).length;
-  if(st)st.textContent=isPersonalMode()?'✓ Salvo com segurança neste aparelho.':(navigator.onLine?'✓ Salvo no aparelho. Enviando para a nuvem…':'✓ Salvo offline. Será enviado automaticamente quando a internet voltar.');
-  renderDashboard();renderRecords();renderExport();paintCloudDemo(navigator.onLine&&!isPersonalMode()?'sync':'');
-  if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}
-  if(!isPersonalMode()&&navigator.onLine)setTimeout(()=>syncPendingQueue().catch(()=>{}),120)
+  if(st)st.textContent='Salvando registro e foto…';
+  try{
+   await pendingPut(p);staged=true;
+   points=mergePoints(points,[{...p,_pending:true}]);
+   cloudPending=(await pendingAll().catch(()=>[])).length;
+   renderDashboard();renderRecords();renderExport();paintCloudDemo(navigator.onLine&&!isPersonalMode()?'sync':'');
+   if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}
+  }catch(localErr){
+   if(isPersonalMode()||!navigator.onLine)throw localErr;
+   if(st)st.textContent='Armazenamento local indisponível. Salvando direto na nuvem…';
+   await api('/points',{method:'POST',body:JSON.stringify(p),timeout:30000});
+   directCloud=true;cloudConnected=true;
+   points=mergePoints(points,[p]);await snapshotPut(points).catch(()=>{});
+   renderDashboard();renderRecords();renderExport();paintCloudDemo();
+   if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}
+  }
+  if(isPersonalMode()){
+   if(st)st.textContent='✓ Foto e informações salvas em Registros.';
+  }else if(navigator.onLine){
+   if(st)st.textContent=directCloud?'✓ Foto e informações salvas na nuvem.':'Salvo em Registros. Sincronizando foto com a nuvem…';
+   if(staged){
+    await syncPendingQueue().catch(()=>{});
+    const stillPending=(await pendingAll().catch(()=>[])).some(x=>x.id===p.id);
+    if(st)st.textContent=stillPending?'✓ Salvo em Registros. Envio para a nuvem pendente.':'✓ Foto e informações salvas em Registros e na nuvem.';
+   }else{
+    await syncDown().catch(()=>{});
+    renderDashboard();renderRecords();renderExport()
+   }
+  }else{
+   if(st)st.textContent='✓ Foto e informações salvas em Registros. Será enviado à nuvem quando a internet voltar.';
+  }
  }catch(e){
-  if(st)st.textContent='⚠ Não foi possível salvar no aparelho. Verifique o espaço de armazenamento.';
-  alert('A foto não foi salva. Verifique se o celular possui espaço livre e tente novamente.')
+  console.error('Falha ao salvar registro',e);
+  if(st)st.textContent='⚠ Falha ao salvar este registro. Toque em “Tirar novamente” e tente outra vez.';
+  alert('Não foi possível salvar a foto e as informações. Tente novamente. Se estiver sem internet, mantenha o aplicativo aberto e tente ao reconectar.')
  }finally{await updatePendingStatus();if(savedPhotoKey===key)saving=false}
 }
 async function downloadCurrentPhoto(){const src=photo||raw;if(!src)return;const blob=dataToBlob(src),point=safeName($('#pointName')?.value||'geofoto'),name=`${point}-${Date.now()}.jpg`,st=$('#saveStatus');try{saveBlob(blob,name);if(st)st.textContent='✓ Foto salva no celular. Verifique a pasta Downloads.'}catch(e){if(st)st.textContent='Não foi possível salvar a foto neste aparelho.'}}
