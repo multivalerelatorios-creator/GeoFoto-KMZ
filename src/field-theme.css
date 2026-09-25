@@ -19,3 +19,197 @@ button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}button{cu
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 .header-settings{justify-self:end}
 @media(max-width:850px){body:has(#capture.active) .camera-large{max-height:30vh;aspect-ratio:4/3}body:has(#capture.active) #cloudDemoBar{padding:6px 10px}body:has(#capture.active) .cloud-storage-mini-track{display:none}}
+
+/* ===== CAMERA MOBILE GRANDE + PREVIA AO VIVO 2026-09-25 ===== */
+.camera-preview-wrap{
+ position:relative;
+ overflow:hidden;
+ border-radius:14px;
+ background:#020b14;
+}
+.live-capture-overlay{
+ position:absolute;
+ inset:0;
+ z-index:6;
+ pointer-events:none;
+ display:flex;
+ flex-direction:column;
+ justify-content:space-between;
+ padding:12px;
+ color:#fff;
+ text-shadow:0 1px 2px rgba(0,0,0,.72);
+}
+.live-camera-top{
+ display:flex;
+ align-items:center;
+ gap:6px;
+ padding-right:94px;
+ min-width:0;
+}
+.live-camera-app,.live-camera-template{
+ max-width:58%;
+ overflow:hidden;
+ text-overflow:ellipsis;
+ white-space:nowrap;
+ padding:6px 9px;
+ border:1px solid rgba(255,255,255,.20);
+ border-radius:9px;
+ background:rgba(4,15,26,.74);
+ backdrop-filter:blur(8px);
+ -webkit-backdrop-filter:blur(8px);
+ font-size:10px;
+ font-weight:850;
+ letter-spacing:.035em;
+}
+.live-camera-template{max-width:36%;color:#cfe7ff;font-weight:750}
+.live-camera-panel{
+ display:grid;
+ grid-template-columns:minmax(0,1.55fr) minmax(92px,.58fr);
+ gap:8px;
+ padding:10px;
+ border:1px solid rgba(255,255,255,.18);
+ border-radius:13px;
+ background:rgba(5,17,29,.78);
+ box-shadow:0 10px 28px rgba(0,0,0,.30);
+ backdrop-filter:blur(8px);
+ -webkit-backdrop-filter:blur(8px);
+}
+.live-camera-copy{
+ min-width:0;
+ display:flex;
+ flex-direction:column;
+ gap:3px;
+}
+.live-camera-copy b{
+ overflow:hidden;
+ text-overflow:ellipsis;
+ white-space:nowrap;
+ font-size:15px;
+ line-height:1.15;
+ letter-spacing:.01em;
+}
+.live-camera-copy strong{font-size:17px;line-height:1.1;margin:1px 0 2px}
+.live-camera-copy span{
+ overflow:hidden;
+ text-overflow:ellipsis;
+ white-space:nowrap;
+ font-size:9.5px;
+ line-height:1.25;
+ color:#e7f1f9;
+}
+.live-camera-copy #liveTech{color:#bed7ea;font-weight:700}
+.live-camera-copy #liveNote{color:#fff;font-weight:700}
+.live-camera-copy small{
+ margin-top:2px;
+ overflow:hidden;
+ text-overflow:ellipsis;
+ white-space:nowrap;
+ color:#83efb1;
+ font-size:8px;
+ font-weight:800;
+ letter-spacing:.025em;
+}
+.live-camera-map{
+ position:relative;
+ min-height:92px;
+ overflow:hidden;
+ display:flex;
+ align-items:flex-end;
+ justify-content:space-between;
+ padding:7px;
+ border:1px solid rgba(255,255,255,.30);
+ border-radius:9px;
+ background:linear-gradient(135deg,rgba(35,86,118,.72),rgba(7,27,43,.88));
+ background-size:cover;
+ background-position:center;
+ box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);
+}
+.live-camera-map:after{
+ content:'';
+ position:absolute;
+ left:50%;
+ top:50%;
+ width:10px;
+ height:10px;
+ transform:translate(-50%,-50%);
+ border:2px solid #fff;
+ border-radius:50%;
+ background:#2f80ff;
+ box-shadow:0 0 0 7px rgba(47,128,255,.23),0 2px 7px rgba(0,0,0,.45);
+}
+.live-camera-map span,.live-camera-map small{
+ position:relative;
+ z-index:2;
+ padding:3px 5px;
+ border-radius:5px;
+ background:rgba(3,12,22,.62);
+ font-size:8px;
+ font-weight:800;
+}
+.live-camera-map.loaded span{opacity:.88}
+.live-capture-overlay.ready .live-camera-panel{border-color:rgba(77,218,139,.42)}
+.camera-preview-wrap .flash-toggle{z-index:9}
+
+@media(max-width:850px){
+ .capture .camera-preview-wrap{
+  width:100%;
+  aspect-ratio:3/4;
+  min-height:min(62vh,560px);
+  max-height:none;
+ }
+ .capture .camera-preview-wrap .camera-large{
+  width:100%;
+  height:100%;
+  min-height:0;
+  max-height:none;
+  aspect-ratio:auto;
+  object-fit:cover;
+ }
+ .capture>#preview.camera-large{
+  width:100%;
+  min-height:0;
+  max-height:none;
+  aspect-ratio:3/4;
+  object-fit:contain;
+  background:#020b14;
+ }
+ .live-capture-overlay{padding:10px}
+ .live-camera-panel{grid-template-columns:minmax(0,1.62fr) minmax(88px,.58fr);padding:9px}
+ .live-camera-copy b{font-size:14px}
+ .live-camera-copy strong{font-size:16px}
+ .live-camera-copy span{font-size:9px}
+ .live-camera-map{min-height:88px}
+}
+@media(max-width:430px){
+ .capture.card{padding:9px}
+ .capture .camera-preview-wrap{min-height:60vh;border-radius:13px}
+ .live-capture-overlay{padding:8px}
+ .live-camera-top{padding-right:86px}
+ .live-camera-app,.live-camera-template{padding:5px 7px;font-size:9px}
+ .live-camera-panel{gap:6px;padding:8px;border-radius:11px}
+ .live-camera-copy{gap:2px}
+ .live-camera-copy b{font-size:13px}
+ .live-camera-copy strong{font-size:15px}
+ .live-camera-copy span{font-size:8.5px}
+ .live-camera-copy small{font-size:7.5px}
+ .live-camera-map{min-height:82px}
+}
+
+/* Override da regra compacta anterior da câmera */
+@media(max-width:850px){
+ body:has(#capture.active) .capture .camera-preview-wrap .camera-large{
+  width:100%;
+  height:100%;
+  min-height:100%;
+  max-height:none;
+  aspect-ratio:auto;
+  object-fit:cover;
+ }
+ body:has(#capture.active) .capture>#preview.camera-large{
+  width:100%;
+  min-height:0;
+  max-height:none;
+  aspect-ratio:3/4;
+  object-fit:contain;
+ }
+}

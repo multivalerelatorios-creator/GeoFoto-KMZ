@@ -6,8 +6,8 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.1'
-let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.2'
+let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
 function uiIcon(name){return '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(UI_PATHS[name]||UI_PATHS.camera)+'</svg>'}
@@ -213,7 +213,7 @@ function loginView(){
 }
 
 async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo"><img src="/icon-192.png" alt="GeoFoto KMZ"></div><div class="brand-account"><b>${esc(accountLabel())}</b><small>GeoFoto KMZ</small></div></div><nav class="nav" aria-label="Navegação principal">${[['dashboard','home','Início'],['capture','camera','Câmera'],['records','records','Registros'],['mapa','map','Mapa'],['export','export','Exportar'],['settings','settings','Config.']].map(([id,icon,label])=>`<button data-page="${id}" class="${id==='capture'?'active':''}" aria-label="${label}">${uiIcon(icon)}<span>${label}</span></button>`).join('')}</nav></aside><main class="main"><header class="top"><button class="app-home" id="homeLink" aria-label="Ir para o início"><img src="/icon-192.png" alt=""><b>GeoFoto KMZ</b></button><button class="header-settings" id="settingsLink" aria-label="Abrir configurações">${uiIcon('settings')}</button><div class="page-heading"><h2 id="title">Câmera</h2><span class="muted">${esc(accountLabel())}</span></div><span id="netStatus" class="status cloud-indicator connecting">☁ Conectando</span></header><div id="cloudDemoBar" class="cloud-demo-bar connecting"><span class="cloud-demo-icon">☁</span><div><b data-cloud-label>☁ Conectando</b><small id="cloudStorageMini">Calculando espaço da nuvem…</small><div class="cloud-storage-mini-track"><i id="cloudStorageMiniFill"></i></div></div><span class="cloud-demo-pulse"></span></div><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="map-tabs"><button id="mapViewButton" class="active" type="button">Mapa</button><button id="mapListButton" type="button">Lista</button></div><div class="card map-card"><div id="map"></div></div><div id="mapPointList" class="hidden"></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));$('#homeLink').onclick=()=>goPage('dashboard');$('#settingsLink').onclick=()=>goPage('settings');$('#mapViewButton').onclick=()=>setMapView(false);$('#mapListButton').onclick=()=>setMapView(true);await requestPersistentStorage();await loadLocalFirst();await ensureIdentity();renderAll();paintCloudDemo();setTimeout(()=>{if(navigator.onLine&&!isPersonalMode())syncDown().then(()=>{renderAll();syncPendingQueue().catch(()=>{})}).catch(()=>{})},80)}
-function show(id,b){if(id!=='capture')stopCamera();document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$('#'+id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.setAttribute('aria-current',x===b?'page':'false'));$('#title').textContent={dashboard:'Início',capture:'Câmera',mapa:'Mapa geral',records:'Registros',export:'Exportar KML/KMZ',settings:'Configurações'}[id];if(id==='mapa'){setTimeout(()=>{initMap();map.invalidateSize()},180);if(!isPersonalMode()&&navigator.onLine&&(!cloudConnected||Date.now()-lastCloudSync>30000))syncDown().then(()=>{refreshMapPoints();renderDashboard();renderRecords();renderExport()}).catch(()=>{})}}
+function show(id,b){if(id!=='capture'){stopCamera();if(captureClockTimer){clearInterval(captureClockTimer);captureClockTimer=null}}else if(!captureClockTimer){captureClockTimer=setInterval(updateLiveCaptureOverlay,1000);updateLiveCaptureOverlay()}document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$('#'+id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.setAttribute('aria-current',x===b?'page':'false'));$('#title').textContent={dashboard:'Início',capture:'Câmera',mapa:'Mapa geral',records:'Registros',export:'Exportar KML/KMZ',settings:'Configurações'}[id];if(id==='mapa'){setTimeout(()=>{initMap();map.invalidateSize()},180);if(!isPersonalMode()&&navigator.onLine&&(!cloudConnected||Date.now()-lastCloudSync>30000))syncDown().then(()=>{refreshMapPoints();renderDashboard();renderRecords();renderExport()}).catch(()=>{})}}
 async function loadLocalFirst(){
  const pending=await pendingAll().catch(()=>[]);
  let base=await snapshotGet().catch(()=>[]);
@@ -285,17 +285,48 @@ function renderCapture(){
  <label class="field">Observação (descrição opcional)<textarea id="note" rows="2" placeholder="Descrição opcional"></textarea></label>
  <div class="sensor-panel"><div id="camState" class="sensor-state waiting"><b>📷 Câmera</b><span>Aguardando identificação</span></div><div id="gpsState" class="sensor-state waiting"><b>⌖ GPS</b><span>Aguardando identificação</span></div></div>
  <button class="btn primary sensor-retry" id="retrySensors" type="button" disabled>Liberar câmera e GPS</button>
- <div class="camera-preview-wrap"><video id="camera" class="camera-large" autoplay playsinline muted></video><button class="flash-toggle" id="flashToggle" type="button" disabled title="Flash não disponível nesta câmera">⚡ Flash</button></div><canvas id="canvas" class="hidden"></canvas><img id="preview" class="camera-large hidden">
+ <div class="camera-preview-wrap"><video id="camera" class="camera-large" autoplay playsinline muted></video>
+ <div id="liveCaptureOverlay" class="live-capture-overlay">
+  <div class="live-camera-top"><span class="live-camera-app">${esc(cfg.appName||'GEOFOTO KMZ')}</span><span id="liveTemplateName" class="live-camera-template">${esc(TEMPLATES[current]?.name||'Essencial')}</span></div>
+  <div class="live-camera-panel">
+   <div class="live-camera-copy"><b id="livePoint">IDENTIFICAÇÃO DO PONTO</b><span id="liveTech">Técnico: ${esc(identity||'-')}</span><strong id="liveTime">--:-- · --/--/----</strong><span id="liveGps">GPS aguardando localização...</span><span id="livePlace">Endereço será exibido após o GPS.</span><span id="liveNote" class="hidden"></span><small id="liveReady">PRÉVIA · confirme o enquadramento antes de tirar</small></div>
+   <div id="liveCameraMap" class="live-camera-map"><span>MAPA</span><small id="liveMapStatus">GPS</small></div>
+  </div>
+ </div>
+ <button class="flash-toggle" id="flashToggle" type="button" disabled title="Flash não disponível nesta câmera">⚡ Flash</button></div><canvas id="canvas" class="hidden"></canvas><img id="preview" class="camera-large hidden">
  <div class="actions shutter-actions"><button class="btn primary" id="take" disabled aria-label="Tirar foto">${uiIcon('camera')}<span>Tirar foto</span></button><button class="btn secondary hidden" id="retake">↻ Tirar novamente</button></div>
 
  <div class="actions"><button class="btn secondary" id="gps" disabled>Atualizar GPS</button></div><div class="actions hidden" id="shareActions"><button class="btn primary" id="shareBtn">📤 Enviar</button><button class="btn secondary" id="downloadBtn">⬇ Salvar foto</button></div>
  <div id="saveStatus" class="statusline">Preencha a identificação do ponto para liberar câmera e GPS.</div><div id="camInfo" class="muted small"></div><div id="gpsInfo" class="muted small"></div>
  </div><div class="card"><h3>Modelo ativo</h3><div id="templatePreview" class="template-preview"><b>${TEMPLATES[current]?.name||'Essencial'}</b><p class="muted">${TEMPLATES[current]?.description||''}</p></div><p class="muted">A identidade do técnico é obrigatória e fica vinculada visualmente à foto registrada.</p></div></div>`;
- const pn=$('#pointName'),hint=$('#pointNameHint');
+ const pn=$('#pointName'),hint=$('#pointNameHint'),note=$('#note');
  pn.addEventListener('input',()=>{const start=pn.selectionStart,end=pn.selectionEnd;pn.value=pn.value.toLocaleUpperCase('pt-BR');try{pn.setSelectionRange(start,end)}catch{}hint.textContent=pn.value.trim()?'Identificação informada.':'Informe a identificação antes da foto.';updateCaptureReady()});
+ note?.addEventListener('input',updateLiveCaptureOverlay);
  $('#take').onclick=takePhoto;$('#retake').onclick=retake;$('#gps').onclick=getGps;$('#retrySensors').onclick=startCameraAndGps;$('#flashToggle').onclick=toggleTorch;
- $('#templateSelect').onchange=e=>{const t=TEMPLATES[e.target.value];$('#templateHint').textContent=t?.description||'';$('#templatePreview').innerHTML=`<b>${t?.name||''}</b><p class="muted">${t?.description||''}</p>`}
- updateCaptureReady();
+ $('#templateSelect').onchange=e=>{const t=TEMPLATES[e.target.value];$('#templateHint').textContent=t?.description||'';$('#templatePreview').innerHTML=`<b>${t?.name||''}</b><p class="muted">${t?.description||''}</p>`;updateLiveCaptureOverlay()}
+ if(captureClockTimer)clearInterval(captureClockTimer);captureClockTimer=setInterval(updateLiveCaptureOverlay,1000);
+ updateCaptureReady();updateLiveCaptureOverlay();
+}
+function updateLiveCaptureOverlay(){
+ const root=$('#liveCaptureOverlay');if(!root)return;
+ const point=($('#pointName')?.value.trim()||'IDENTIFICAÇÃO DO PONTO').toLocaleUpperCase('pt-BR'),note=$('#note')?.value.trim()||'',now=new Date(),template=TEMPLATES[$('#templateSelect')?.value]||TEMPLATES.essential;
+ const set=(id,value)=>{const el=$(id);if(el)el.textContent=value};
+ set('#livePoint',point);set('#liveTech','Técnico: '+(identity||'-'));set('#liveTime',now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+' · '+now.toLocaleDateString('pt-BR'));
+ set('#liveTemplateName',template?.name||'Essencial');
+ if(geo){
+  set('#liveGps','GPS: '+geo.latitude.toFixed(6)+', '+geo.longitude.toFixed(6)+' · ±'+Math.round(geo.accuracy||0)+' m');
+  set('#livePlace',(geo.address||geo.city||'Localização obtida; buscando endereço...').slice(0,110));
+  set('#liveMapStatus','GPS OK');root.classList.add('ready');updateLiveMapPreview()
+ }else{
+  set('#liveGps','GPS aguardando localização...');set('#livePlace','Endereço será exibido após o GPS.');set('#liveMapStatus','GPS');root.classList.remove('ready')
+ }
+ const noteEl=$('#liveNote');if(noteEl){noteEl.textContent=note?'Obs.: '+note:'';noteEl.classList.toggle('hidden',!note)}
+ set('#liveReady',geo&&$('#pointName')?.value.trim()?'PRONTO · confira o enquadramento e as informações':'PRÉVIA · as informações aparecerão antes da foto')
+}
+async function updateLiveMapPreview(){
+ const el=$('#liveCameraMap');if(!el||!geo)return;
+ const key=geo.latitude.toFixed(5)+','+geo.longitude.toFixed(5);if(el.dataset.mapKey===key)return;el.dataset.mapKey=key;
+ try{const c=await loadOsmSnapshot(geo.latitude,geo.longitude,360,300,17);if(!el||el.dataset.mapKey!==key)return;el.style.backgroundImage='linear-gradient(rgba(2,10,18,.08),rgba(2,10,18,.08)),url('+c.toDataURL('image/jpeg',.82)+')';el.classList.add('loaded')}catch{}
 }
 async function startCameraAndGps(){const point=$('#pointName')?.value.trim();if(!point){const hint=$('#pointNameHint');if(hint)hint.textContent='⚠ Preencha a identificação antes de liberar a câmera.';updateCaptureReady();return}await Promise.allSettled([startCamera(),getGps()]);updateCaptureReady()}
 function updateCaptureReady(){
@@ -307,6 +338,7 @@ function updateCaptureReady(){
  if(point&&!cam&&camState&&camState.classList.contains('waiting'))camState.querySelector('span').textContent='Pronto para liberar';
  if(point&&!gps&&gpsState&&gpsState.classList.contains('waiting'))gpsState.querySelector('span').textContent='Pronto para liberar';
  const st=$('#saveStatus');if(st&&!raw){if(!point)st.textContent='Preencha a identificação do ponto para liberar câmera e GPS.';else if(cam&&gps)st.textContent='Pronto para registrar.';else st.textContent='Identificação informada. Toque em “Liberar câmera e GPS”.';}
+ updateLiveCaptureOverlay()
 }
 async function startCamera(){
  const v=$('#camera'),state=$('#camState'),info=$('#camInfo');if(!v)return false;
@@ -430,7 +462,7 @@ async function getGps(){
   set('ok','GPS OK · ±'+Math.round(geo.accuracy)+' m');
   if(el)el.innerHTML=`Latitude: <b>${geo.latitude.toFixed(6)}</b> · Longitude: <b>${geo.longitude.toFixed(6)}</b> · Precisão: <b>${Math.round(geo.accuracy)} m</b><br><span>${navigator.onLine?'Buscando endereço…':'Sem internet · coordenadas salvas normalmente'}</span>`;
   updateCaptureReady();resolve(true);
-  if(navigator.onLine)reverse(geo.latitude,geo.longitude).then(r=>{if(!geo)return;geo.city=r.city;geo.address=r.address;if(el)el.innerHTML=`Latitude: <b>${geo.latitude.toFixed(6)}</b> · Longitude: <b>${geo.longitude.toFixed(6)}</b> · Precisão: <b>${Math.round(geo.accuracy)} m</b><br><b>${esc(geo.city||'Localização GPS')}</b> · ${esc(geo.address||'Endereço não localizado')}`}).catch(()=>{})
+  if(navigator.onLine)reverse(geo.latitude,geo.longitude).then(r=>{if(!geo)return;geo.city=r.city;geo.address=r.address;if(el)el.innerHTML=`Latitude: <b>${geo.latitude.toFixed(6)}</b> · Longitude: <b>${geo.longitude.toFixed(6)}</b> · Precisão: <b>${Math.round(geo.accuracy)} m</b><br><b>${esc(geo.city||'Localização GPS')}</b> · ${esc(geo.address||'Endereço não localizado')}`;updateLiveCaptureOverlay()}).catch(()=>{})
  },e=>{const denied=e.code===1;set('error',denied?'Permissão de localização bloqueada. Ative a localização para o GeoFoto KMZ.':'Falha no GPS: '+e.message);updateCaptureReady();resolve(false)},{enableHighAccuracy:true,timeout:20000,maximumAge:3000}))
 }
 async function reverse(lat,lng){if(!navigator.onLine)return{address:'',city:''};const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),3500);try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`,{signal:ctrl.signal}),d=await r.json(),a=d.address||{};return{address:d.display_name||'',city:a.city||a.town||a.village||a.municipality||a.county||''}}catch{return{address:'',city:''}}finally{clearTimeout(timer)}}
