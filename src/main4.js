@@ -6,7 +6,7 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.5'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.6'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
@@ -536,6 +536,35 @@ function recordDateTimeLocal(v){
  const local=new Date(d.getTime()-d.getTimezoneOffset()*60000);
  return local.toISOString().slice(0,16)
 }
+async function redrawEditedRecordPhoto(p){
+ let src=p.photo||'';
+ if(!src&&p.photoUrl){const b=await apiBlob(p.photoUrl);src=await fileData(b)}
+ if(!src)throw Error('Foto original do registro não está disponível.');
+ const img=await loadImg(src,8000),c=document.createElement('canvas'),x=c.getContext('2d');
+ c.width=img.naturalWidth||img.width;c.height=img.naturalHeight||img.height;x.drawImage(img,0,0,c.width,c.height);
+ const pad=Math.round(c.width*.028),cardX=pad,cardW=c.width-pad*2,panelH=Math.round(c.height*.28),panelY=c.height-panelH-Math.round(pad*.55),radius=Math.round(pad*.75);
+ const coverW=Math.round(cardW*.625);
+ x.save();
+ if(x.roundRect){x.beginPath();x.roundRect(cardX,panelY,cardW,panelH,radius);x.clip()}
+ x.fillStyle='rgba(7,18,31,.985)';x.fillRect(cardX,panelY,coverW,panelH);
+ x.restore();
+ const textX=cardX+pad,textW=Math.round(cardW*.52),d=new Date(p.time),timeText=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),dateText=d.toLocaleDateString('pt-BR');
+ const fg='#fff',muted='#d9e3ec',line=Math.round(panelH*.088);
+ x.fillStyle=fg;x.font='800 '+Math.max(30,Math.round(c.width*.034))+'px Arial';x.fillText(String(p.name||'Ponto').toLocaleUpperCase('pt-BR'),textX,panelY+Math.round(panelH*.12),textW);
+ x.fillStyle=muted;x.font='700 '+Math.max(20,Math.round(c.width*.019))+'px Arial';x.fillText('Nome: '+String(p.technician||'').trim(),textX,panelY+Math.round(panelH*.23),textW);
+ x.fillStyle=fg;x.font='850 '+Math.max(44,Math.round(c.width*.044))+'px Arial';x.fillText(timeText,textX,panelY+Math.round(panelH*.40),textW);
+ x.fillStyle=muted;x.font='700 '+Math.max(21,Math.round(c.width*.019))+'px Arial';x.fillText(dateText,textX,panelY+Math.round(panelH*.51),textW);
+ x.font='650 '+Math.max(19,Math.round(c.width*.0175))+'px Arial';
+ let y=panelY+Math.round(panelH*.62);
+ y=drawWrappedText(x,'GPS: '+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6),textX,y,textW,line,1);
+ y=drawWrappedText(x,'Precisão: '+Math.round(p.accuracy||0)+' m  •  '+(p.city||'Não identificada'),textX,y,textW,line,1);
+ const addr=String(p.address||'Não identificado').replace(/,\s*Regi[aã]o\s+Sul,?/i,'').replace(/,\s*Brasil$/i,'').replace(/,\s*$/,'').slice(0,92);
+ y=drawWrappedText(x,'Endereço: '+addr,textX,y,textW,line,2);
+ if(p.note){x.fillStyle=fg;drawWrappedText(x,'Obs.: '+String(p.note).slice(0,90),textX,Math.min(y,panelY+panelH-Math.round(line*1.15)),textW,line,1)}
+ x.fillStyle='#22c55e';x.beginPath();x.arc(textX,panelY+panelH-Math.round(pad*.65),Math.max(6,Math.round(c.width*.0055)),0,Math.PI*2);x.fill();
+ x.fillStyle=muted;x.font='600 '+Math.max(14,Math.round(c.width*.013))+'px Arial';x.fillText('GPS OK • Foto registrada',textX+Math.round(pad*.5),panelY+panelH-Math.round(pad*.48),textW);
+ return c.toDataURL('image/jpeg',.9)
+}
 function openRecordEdit(id){
  if(role!=='admin')return;
  const p=points.find(x=>x.id===id);if(!p)return;
@@ -552,8 +581,9 @@ function openRecordEdit(id){
   const dt=gate.querySelector('#recordEditTime'),note=gate.querySelector('#recordEditNote'),msg=gate.querySelector('#recordEditMsg'),btn=gate.querySelector('#recordEditSave');
   const when=new Date(dt.value);if(!dt.value||Number.isNaN(when.getTime())){msg.textContent='Informe uma data e hora válidas.';return}
   const updated={...p,time:when.toISOString(),note:note.value.trim()};delete updated._pending;delete updated._tenant;
-  btn.disabled=true;btn.textContent='Salvando...';msg.textContent='Salvando alteração sem modificar localização ou ponto...';
+  btn.disabled=true;btn.textContent='Salvando...';msg.textContent='Atualizando data, hora e descrição também na foto...';
   try{
+   if(p.photo||p.photoUrl)updated.photo=await redrawEditedRecordPhoto(updated);
    await pendingPut(updated);
    points=points.map(x=>x.id===id?{...updated,_pending:true}:x).sort((a,b)=>String(a.time).localeCompare(String(b.time)));
    await snapshotPut(points).catch(()=>{});
