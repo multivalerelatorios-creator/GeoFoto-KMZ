@@ -1,6 +1,9 @@
-const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json;charset=UTF-8'}})
+import JSZip from 'jszip'
+const json=(data,status=200,extra={})=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json;charset=UTF-8',...extra}})
 const cleanTenant=v=>String(v||'principal').trim().toLowerCase().replace(/[^a-z0-9_-]/g,'').slice(0,50)||'principal'
 const bearer=req=>{const a=req.headers.get('Authorization')||'';return a.startsWith('Bearer ')?a.slice(7):''}
+const cookieToken=req=>{const raw=req.headers.get('Cookie')||'';const m=raw.match(/(?:^|;\s*)gf_session=([^;]+)/);if(!m)return'';try{return decodeURIComponent(m[1])}catch{return m[1]}}
+const sessionCookie=(req,token,maxAge=2592000)=>'gf_session='+encodeURIComponent(token)+'; Path=/; HttpOnly; SameSite=Strict; Max-Age='+maxAge+(new URL(req.url).protocol==='https:'?'; Secure':'')
 async function sha256(v){
   const bytes=new TextEncoder().encode(String(v||''))
   const hash=await crypto.subtle.digest('SHA-256',bytes)
@@ -26,7 +29,7 @@ async function verifyPassword(pass,stored){
 function randomReadable(n=10){const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',a=crypto.getRandomValues(new Uint8Array(n));return [...a].map(x=>chars[x%chars.length]).join('')}
 function companySlug(name){return String(name||'empresa').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,28)||'empresa'}
 async function sessionOf(req,env){
-  const token=bearer(req); if(!token)return null
+  const token=bearer(req)||cookieToken(req); if(!token)return null
   if(token===env.GEOFOTO_ADMIN_TOKEN)return{tenant_id:'principal',role:'admin',super:false,legacy:true}
   if(token===env.GEOFOTO_TOKEN)return{tenant_id:'principal',role:'user',super:false,legacy:true}
   const now=new Date().toISOString()
@@ -107,9 +110,15 @@ export default {
   const s=await sessionOf(req,env)
   if(!s)return json({error:'Não autorizado'},401)
   if(url.pathname==='/api/master/logout'&&req.method==='POST'&&s.super){
-   await env.DB.prepare('DELETE FROM master_sessions WHERE token=?').bind(bearer(req)).run()
-   return json({ok:true})
+   await env.DB.prepare('DELETE FROM master_sessions WHERE token=?').bind(bearer(req)||cookieToken(req)).run()
+   return json({ok:true},200,{'set-cookie':'gf_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'})
   }
+  if(url.pathname==='/api/session-cookie'&&req.method==='POST'){
+   const token=bearer(req);if(!token)return json({error:'Token ausente'},400)
+   return json({ok:true},200,{'set-cookie':sessionCookie(req,token,s.super?43200:2592000),'cache-control':'no-store'})
+  }
+  if(url.pathname==='/api/export/kml'&&req.method==='GET')return exportKml(req,env,s)
+  if(url.pathname==='/api/export/kmz'&&req.method==='GET')return exportKmz(req,env,s)
 
   if(url.pathname==='/api/account'&&req.method==='GET'){
    const t=await env.DB.prepare('SELECT name FROM tenants WHERE id=?').bind(s.tenant_id).first().catch(()=>null)
@@ -235,4 +244,46 @@ async function getPhoto(url,env,s){
  const obj=await env.PHOTOS.get(row.photo_key)
  if(!obj)return new Response('Não encontrada',{status:404})
  return new Response(obj.body,{headers:{'content-type':obj.httpMetadata?.contentType||'image/jpeg','cache-control':'private, max-age=3600'}})
+}
+
+function htmlEscape(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function xmlEscape(s=''){return htmlEscape(s)}
+function exportSafeName(s='registro'){return String(s).replace(/[^a-z0-9_-]+/gi,'-').replace(/^-+|-+$/g,'')||'registro'}
+function exportPhotoPath(p){return 'fotos/'+exportSafeName(p.name)+'-'+String(p.id).slice(0,8)+'.jpg'}
+function exportDateName(ext){return 'geofoto-kmz-'+new Date().toISOString().slice(0,10)+'.'+ext}
+function exportTime(v){try{return new Date(v).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})}catch{return String(v||'')}}
+function exportKmlText(points,withPhotos=false,origin=''){
+ const items=points.map(p=>{
+  const desc='<b>Descrição:</b> '+htmlEscape(p.note||'Sem descrição informada.')+
+   '<br><b>Técnico:</b> '+htmlEscape(p.technician||'Registro antigo sem identidade')+
+   '<br><b>Data/Hora:</b> '+htmlEscape(exportTime(p.time))+
+   '<br><b>Cidade:</b> '+htmlEscape(p.city||'Não identificada')+
+   '<br><b>Endereço:</b> '+htmlEscape(p.address||'Não identificado')+
+   '<br><b>Precisão GPS:</b> '+Math.round(Number(p.accuracy||0))+' m'+
+   '<br><b>Coordenadas:</b> '+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6);
+  const image=withPhotos&&p.photo_key?'<br><br><img src="'+exportPhotoPath(p)+'" width="640">':'';
+  return '<Placemark><visibility>1</visibility><styleUrl>#geofoto-point</styleUrl><name>'+xmlEscape(p.name||'Ponto')+'</name><description><![CDATA['+desc+image+']]></description><Point><coordinates>'+p.lng+','+p.lat+',0</coordinates></Point></Placemark>'
+ });
+ const icon=withPhotos?'icons/ponto.png':(origin?origin+'/map-marker.png':'');
+ return '<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>GeoFoto KMZ</name><visibility>1</visibility><Style id="geofoto-point"><IconStyle><scale>1.1</scale><Icon><href>'+xmlEscape(icon)+'</href></Icon><hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/></IconStyle></Style>'+items.join('')+'</Document></kml>'
+}
+async function exportRows(env,tenant){
+ const {results}=await env.DB.prepare('SELECT id,name,note,technician,lat,lng,accuracy,time,city,address,photo_key FROM points WHERE tenant_id=? ORDER BY time ASC').bind(tenant).all();
+ return results||[]
+}
+async function exportKml(req,env,s){
+ const rows=await exportRows(env,s.tenant_id);if(!rows.length)return new Response('Nenhum ponto disponível para exportar.',{status:404});
+ const body=exportKmlText(rows,false,new URL(req.url).origin);
+ return new Response(body,{headers:{'content-type':'application/vnd.google-earth.kml+xml; charset=UTF-8','content-disposition':'attachment; filename="'+exportDateName('kml')+'"','cache-control':'no-store','x-content-type-options':'nosniff'}})
+}
+async function exportKmz(req,env,s){
+ const rows=await exportRows(env,s.tenant_id);if(!rows.length)return new Response('Nenhum ponto disponível para exportar.',{status:404});
+ const z=new JSZip();z.file('doc.kml',exportKmlText(rows,true,new URL(req.url).origin));
+ try{const rr=await env.ASSETS.fetch(new Request(new URL('/map-marker.png',req.url)));if(rr.ok)z.file('icons/ponto.png',new Uint8Array(await rr.arrayBuffer()))}catch{}
+ for(const p of rows){
+  if(!p.photo_key)continue;
+  try{const obj=await env.PHOTOS.get(p.photo_key);if(obj)z.file(exportPhotoPath(p),new Uint8Array(await obj.arrayBuffer()))}catch{}
+ }
+ const bytes=await z.generateAsync({type:'uint8array',compression:'STORE'});
+ return new Response(bytes,{headers:{'content-type':'application/vnd.google-earth.kmz','content-disposition':'attachment; filename="'+exportDateName('kmz')+'"','cache-control':'no-store','x-content-type-options':'nosniff','content-length':String(bytes.byteLength)}})
 }
