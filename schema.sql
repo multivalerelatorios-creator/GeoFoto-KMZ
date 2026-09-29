@@ -39,9 +39,22 @@ CREATE TABLE IF NOT EXISTS tenant_sessions (
   token TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'user',
+  username TEXT NOT NULL DEFAULT '',
   expires_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON tenant_sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS reference_kmz (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  owner_username TEXT NOT NULL DEFAULT '',
+  scope TEXT NOT NULL CHECK(scope IN ('personal','company')),
+  name TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  object_key TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_reference_kmz_tenant_scope ON reference_kmz(tenant_id,scope,owner_username,created_at);
 
 INSERT OR IGNORE INTO tenants (id,name) VALUES ('principal','Conta principal');
 

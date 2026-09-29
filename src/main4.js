@@ -6,8 +6,8 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.8'
-let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.5.9'
+let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,referenceLayerGroup=null,referenceKmz=[],referenceKmzCache=new Map(),stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
 function uiIcon(name){return '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(UI_PATHS[name]||UI_PATHS.camera)+'</svg>'}
@@ -98,7 +98,7 @@ async function api(path,opt={}){
  catch(e){if(e?.name==='AbortError')throw Error('Tempo esgotado na conexão');throw e}
  finally{clearTimeout(timer)}
 }
-async function apiBlob(path){const h={};if(token)h.Authorization=`Bearer ${token}`;const base=path.startsWith('/api/')?path:'/api'+path,url=base+(base.includes('?')?'&':'?')+'_v='+Date.now(),ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),12000);try{const r=await fetch(url,{headers:h,signal:ctrl.signal,cache:'no-store'});if(!r.ok)throw Error('Falha ao carregar foto');return r.blob()}finally{clearTimeout(timer)}}
+async function apiBlob(path,timeoutMs=12000){const h={};if(token)h.Authorization=`Bearer ${token}`;const base=path.startsWith('/api/')?path:'/api'+path,url=base+(base.includes('?')?'&':'?')+'_v='+Date.now(),ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),timeoutMs);try{const r=await fetch(url,{headers:h,signal:ctrl.signal,cache:'no-store'});if(!r.ok)throw Error('Falha ao carregar arquivo');return r.blob()}finally{clearTimeout(timer)}}
 function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}torchOn=false;torchSupported=false;updateTorchButton()}
 function updateTorchButton(){const b=$('#flashToggle');if(!b)return;b.disabled=!torchSupported;b.classList.toggle('active',torchOn);b.innerHTML=torchOn?'🔦 Flash ligado':'⚡ Flash';b.title=torchSupported?'Ligar ou desligar o flash da câmera':'Flash não disponível nesta câmera'}
 async function detectTorch(){const t=stream?.getVideoTracks?.()[0];let caps={};try{caps=t?.getCapabilities?.()||{}}catch{}torchSupported=!!(t&&caps.torch);torchOn=false;updateTorchButton();return torchSupported}
@@ -115,10 +115,10 @@ function ensureIdentity(){
  })
 }
 async function startTenantSession(d,account){
- token=d.token;role=d.role||'user';tenant=d.tenant||account||'principal';identity='';cfg=loadCfg();mergeLocalBrand();
- sessionStorage.setItem('gf_token',token);sessionStorage.setItem('gf_role',role);sessionStorage.setItem('gf_tenant',tenant);
- localStorage.setItem('gf_token',token);localStorage.setItem('gf_role',role);localStorage.setItem(ACCOUNT,tenant);
- sessionStorage.removeItem(IDENTITY);localStorage.removeItem(IDENTITY);await appView()
+ token=d.token;role=d.role||'user';tenant=d.tenant||account||'principal';currentUser=d.username||'';identity='';cfg=loadCfg();mergeLocalBrand();
+ sessionStorage.setItem('gf_token',token);sessionStorage.setItem('gf_role',role);sessionStorage.setItem('gf_tenant',tenant);sessionStorage.setItem('gf_user',currentUser);
+ localStorage.setItem('gf_token',token);localStorage.setItem('gf_role',role);localStorage.setItem('gf_user',currentUser);localStorage.setItem(ACCOUNT,tenant);
+ sessionStorage.removeItem(IDENTITY);localStorage.removeItem(IDENTITY);referenceKmz=[];referenceKmzCache.clear();await appView()
 }
 async function copyText(v){
  try{await navigator.clipboard.writeText(v);return true}
@@ -212,7 +212,7 @@ function loginView(){
  };
 }
 
-async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo"><img src="/icon-192.png" alt="GeoFoto KMZ"></div><div class="brand-account"><b>${esc(accountLabel())}</b><small>GeoFoto KMZ</small></div></div><nav class="nav" aria-label="Navegação principal">${[['dashboard','home','Início'],['capture','camera','Câmera'],['records','records','Registros'],['mapa','map','Mapa'],['export','export','Exportar'],['settings','settings','Config.']].map(([id,icon,label])=>`<button data-page="${id}" class="${id==='capture'?'active':''}" aria-label="${label}">${uiIcon(icon)}<span>${label}</span></button>`).join('')}</nav></aside><main class="main"><header class="top"><button class="app-home" id="homeLink" aria-label="Ir para o início"><img src="/icon-192.png" alt=""><b>GeoFoto KMZ</b></button><button class="header-settings" id="settingsLink" aria-label="Abrir configurações">${uiIcon('settings')}</button><div class="page-heading"><h2 id="title">Câmera</h2><span class="muted">${esc(accountLabel())}</span></div><span id="netStatus" class="status cloud-indicator connecting">☁ Conectando</span></header><div id="cloudDemoBar" class="cloud-demo-bar connecting"><span class="cloud-demo-icon">☁</span><div><b data-cloud-label>☁ Conectando</b><small id="cloudStorageMini">Calculando espaço da nuvem…</small><div class="cloud-storage-mini-track"><i id="cloudStorageMiniFill"></i></div></div><span class="cloud-demo-pulse"></span></div><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="map-tabs"><button id="mapViewButton" class="active" type="button">Mapa</button><button id="mapListButton" type="button">Lista</button></div><div class="card map-card"><div id="map"></div></div><div id="mapPointList" class="hidden"></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));$('#homeLink').onclick=()=>goPage('dashboard');$('#settingsLink').onclick=()=>goPage('settings');$('#mapViewButton').onclick=()=>setMapView(false);$('#mapListButton').onclick=()=>setMapView(true);await requestPersistentStorage();await loadLocalFirst();await ensureIdentity();renderAll();paintCloudDemo();setTimeout(()=>{if(navigator.onLine&&!isPersonalMode())syncDown().then(()=>{renderAll();syncPendingQueue().catch(()=>{})}).catch(()=>{})},80)}
+async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo"><img src="/icon-192.png" alt="GeoFoto KMZ"></div><div class="brand-account"><b>${esc(accountLabel())}</b><small>GeoFoto KMZ</small></div></div><nav class="nav" aria-label="Navegação principal">${[['dashboard','home','Início'],['capture','camera','Câmera'],['records','records','Registros'],['mapa','map','Mapa'],['export','export','Exportar'],['settings','settings','Config.']].map(([id,icon,label])=>`<button data-page="${id}" class="${id==='capture'?'active':''}" aria-label="${label}">${uiIcon(icon)}<span>${label}</span></button>`).join('')}</nav></aside><main class="main"><header class="top"><button class="app-home" id="homeLink" aria-label="Ir para o início"><img src="/icon-192.png" alt=""><b>GeoFoto KMZ</b></button><button class="header-settings" id="settingsLink" aria-label="Abrir configurações">${uiIcon('settings')}</button><div class="page-heading"><h2 id="title">Câmera</h2><span class="muted">${esc(accountLabel())}</span></div><span id="netStatus" class="status cloud-indicator connecting">☁ Conectando</span></header><div id="cloudDemoBar" class="cloud-demo-bar connecting"><span class="cloud-demo-icon">☁</span><div><b data-cloud-label>☁ Conectando</b><small id="cloudStorageMini">Calculando espaço da nuvem…</small><div class="cloud-storage-mini-track"><i id="cloudStorageMiniFill"></i></div></div><span class="cloud-demo-pulse"></span></div><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="map-tabs"><button id="mapViewButton" class="active" type="button">Mapa</button><button id="mapListButton" type="button">Lista</button></div><div class="card map-card"><div id="map"></div></div><div id="mapPointList" class="hidden"></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));$('#homeLink').onclick=()=>goPage('dashboard');$('#settingsLink').onclick=()=>goPage('settings');$('#mapViewButton').onclick=()=>setMapView(false);$('#mapListButton').onclick=()=>setMapView(true);await requestPersistentStorage();await loadLocalFirst();await ensureIdentity();renderAll();paintCloudDemo();setTimeout(()=>{if(navigator.onLine&&!isPersonalMode()){loadReferenceKmz().catch(()=>{});syncDown().then(()=>{renderAll();syncPendingQueue().catch(()=>{});loadReferenceKmz().catch(()=>{})}).catch(()=>{})}},80)}
 function show(id,b){if(id!=='capture'){stopCamera();if(captureClockTimer){clearInterval(captureClockTimer);captureClockTimer=null}}else if(!captureClockTimer){captureClockTimer=setInterval(updateLiveCaptureOverlay,1000);updateLiveCaptureOverlay()}document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$('#'+id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.setAttribute('aria-current',x===b?'page':'false'));$('#title').textContent={dashboard:'Início',capture:'Câmera',mapa:'Mapa geral',records:'Registros',export:'Exportar KML/KMZ',settings:'Configurações'}[id];if(id==='mapa'){setTimeout(()=>{initMap();map.invalidateSize()},180);if(!isPersonalMode()&&navigator.onLine&&(!cloudConnected||Date.now()-lastCloudSync>30000))syncDown().then(()=>{refreshMapPoints();renderDashboard();renderRecords();renderExport()}).catch(()=>{})}if(id==='export')setTimeout(()=>prepareExportFiles().catch(()=>{}),30)}
 async function loadLocalFirst(){
  const pending=await pendingAll().catch(()=>[]);
@@ -642,8 +642,68 @@ function setMapView(list){
  $('#mapViewButton').classList.toggle('active',!list);$('#mapListButton').classList.toggle('active',list);
  if(list){$('#mapPointList').innerHTML=points.slice().reverse().map(p=>`<button class="map-list-row" data-point-focus="${attr(p.id)}"><b>${esc(p.name)}</b><span>${esc(p.city||'')} · ${fmt(p.time)}</span><span>${esc(p.note||'Sem descrição informada.')}</span></button>`).join('')||'<div class="card">Nenhum ponto registrado.</div>';document.querySelectorAll('[data-point-focus]').forEach(b=>b.onclick=()=>{setMapView(false);const p=points.find(x=>x.id===b.dataset.pointFocus);if(p){map.setView([Number(p.lat),Number(p.lng)],18);markers.eachLayer(m=>{if(m.options.pointId===p.id)m.openPopup()})}})}else{initMap();setTimeout(()=>map.invalidateSize(),30)}
 }
+function kmzActiveKey(){return 'gf_reference_kmz_active:'+String(tenant||'principal')+':'+String(currentUser||role||'user')}
+function getActiveKmzIds(){try{return new Set(JSON.parse(localStorage.getItem(kmzActiveKey())||'[]'))}catch{return new Set()}}
+function setKmzActive(id,on){const ids=getActiveKmzIds();if(on)ids.add(id);else ids.delete(id);localStorage.setItem(kmzActiveKey(),JSON.stringify([...ids]));renderReferenceLayers().catch(()=>{})}
+async function loadReferenceKmz(){
+ if(isPersonalMode()||!token){referenceKmz=[];return referenceKmz}
+ try{
+  if(!currentUser){const a=await api('/account',{timeout:5000});currentUser=a.username||'';sessionStorage.setItem('gf_user',currentUser);localStorage.setItem('gf_user',currentUser)}
+  const list=await api('/reference-kmz',{timeout:12000});referenceKmz=Array.isArray(list)?list:[];renderExport();if(map)await renderReferenceLayers();return referenceKmz
+ }catch(e){console.warn('KMZ de referência indisponível',e);return referenceKmz}
+}
+async function uploadReferenceKmz(file){
+ if(!file)throw Error('Selecione um arquivo KMZ.');
+ if(!file.name.toLowerCase().endsWith('.kmz'))throw Error('Selecione um arquivo .kmz.');
+ if(file.size>20*1024*1024)throw Error('O arquivo deve ter no máximo 20 MB.');
+ const fd=new FormData();fd.append('file',file,file.name);const h={};if(token)h.Authorization='Bearer '+token;
+ const r=await fetch('/api/reference-kmz',{method:'POST',headers:h,body:fd});const data=await r.json().catch(()=>({}));
+ if(!r.ok)throw Error(data.error||'Falha ao carregar KMZ.');
+ await loadReferenceKmz();if(data.id)setKmzActive(data.id,true);return data
+}
+async function deleteReferenceKmz(id){
+ await api('/reference-kmz/'+encodeURIComponent(id),{method:'DELETE',timeout:15000});referenceKmzCache.delete(id);
+ const ids=getActiveKmzIds();ids.delete(id);localStorage.setItem(kmzActiveKey(),JSON.stringify([...ids]));await loadReferenceKmz()
+}
+function parseKmlCoordinates(text){return String(text||'').trim().split(/\s+/).map(v=>{const a=v.split(',').map(Number);return Number.isFinite(a[0])&&Number.isFinite(a[1])?[a[1],a[0]]:null}).filter(Boolean)}
+async function parseReferenceKmz(item){
+ if(referenceKmzCache.has(item.id))return referenceKmzCache.get(item.id);
+ const blob=await apiBlob(item.fileUrl,40000),zip=await JSZip.loadAsync(await blob.arrayBuffer()),entry=Object.values(zip.files).find(x=>!x.dir&&x.name.toLowerCase().endsWith('.kml'));
+ if(!entry)throw Error('KML interno não encontrado.');
+ const xmlText=await entry.async('string'),doc=new DOMParser().parseFromString(xmlText,'application/xml');
+ if(doc.querySelector('parsererror'))throw Error('KML inválido.');
+ const features=[];
+ [...doc.getElementsByTagName('Placemark')].forEach(pm=>{
+  const name=pm.getElementsByTagName('name')[0]?.textContent?.trim()||item.name,description=pm.getElementsByTagName('description')[0]?.textContent?.trim()||'';
+  [...pm.getElementsByTagName('LineString')].forEach(g=>{const c=parseKmlCoordinates(g.getElementsByTagName('coordinates')[0]?.textContent);if(c.length>1)features.push({type:'line',coords:c,name,description})});
+  [...pm.getElementsByTagName('Polygon')].forEach(g=>{const c=parseKmlCoordinates(g.getElementsByTagName('coordinates')[0]?.textContent);if(c.length>2)features.push({type:'polygon',coords:c,name,description})});
+  [...pm.getElementsByTagName('Point')].forEach(g=>{const c=parseKmlCoordinates(g.getElementsByTagName('coordinates')[0]?.textContent);if(c[0])features.push({type:'point',coords:c[0],name,description})})
+ });
+ referenceKmzCache.set(item.id,features);return features
+}
+function safeReferencePopup(name,description){
+ const box=document.createElement('div'),b=document.createElement('b'),p=document.createElement('div');b.textContent=name||'Referência KMZ';p.textContent=description||'Camada de referência';box.append(b,p);return box
+}
+async function renderReferenceLayers(){
+ if(!map)return;
+ if(!referenceLayerGroup)referenceLayerGroup=L.layerGroup().addTo(map);referenceLayerGroup.clearLayers();
+ const active=getActiveKmzIds(),bounds=[];
+ for(const item of referenceKmz.filter(x=>active.has(x.id))){
+  try{
+   const features=await parseReferenceKmz(item);
+   for(const f of features){
+    let layer=null;
+    if(f.type==='line')layer=L.polyline(f.coords,{weight:4,opacity:.82,dashArray:'9 6'});
+    if(f.type==='polygon')layer=L.polygon(f.coords,{weight:3,opacity:.8,fillOpacity:.08,dashArray:'8 5'});
+    if(f.type==='point')layer=L.circleMarker(f.coords,{radius:7,weight:3,fillOpacity:.35});
+    if(layer){layer.bindPopup(safeReferencePopup(f.name,f.description));layer.addTo(referenceLayerGroup);if(f.type==='point')bounds.push(f.coords);else bounds.push(...f.coords)}
+   }
+  }catch(e){console.warn('Falha ao exibir '+item.name,e)}
+ }
+ return bounds
+}
 function initMap(){
- if(!map){map=L.map('map',{zoomControl:true}).setView([-25.43,-49.27],11);L.tileLayer('/api/tile/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);markers=L.layerGroup().addTo(map)}
+ if(!map){map=L.map('map',{zoomControl:true}).setView([-25.43,-49.27],11);L.tileLayer('/api/tile/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);markers=L.layerGroup().addTo(map);referenceLayerGroup=L.layerGroup().addTo(map)}
  markers.clearLayers();const valid=points.filter(p=>p.lat!==null&&p.lng!==null&&Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lng)));
  valid.forEach(p=>{
   const box=document.createElement('div');box.className='point-popup';
@@ -654,9 +714,32 @@ function initMap(){
   let photoObjectUrl='';marker.on('popupopen',async()=>{const img=box.querySelector('img');if(!img)return;try{if(p.photo)img.src=p.photo;else{const blob=await apiBlob(p.photoUrl);if(!marker.isPopupOpen())return;photoObjectUrl=URL.createObjectURL(blob);img.src=photoObjectUrl}}catch{img.alt='Foto indisponível'}});marker.on('popupclose',()=>{if(photoObjectUrl){URL.revokeObjectURL(photoObjectUrl);photoObjectUrl=''}})
  });
  if(valid.length===1)map.setView([Number(valid[0].lat),Number(valid[0].lng)],17);else if(valid.length>1)map.fitBounds(L.latLngBounds(valid.map(p=>[Number(p.lat),Number(p.lng)])).pad(.2));
+ renderReferenceLayers().then(bounds=>{if(!valid.length&&bounds?.length)map.fitBounds(L.latLngBounds(bounds).pad(.12))}).catch(()=>{});
  setTimeout(()=>map.invalidateSize(),200)
 }
-function renderExport(){$("#export").innerHTML=`<div class="card"><h3>Central de registros</h3><p class="muted">Cada foto salva automaticamente já cria um Placemark no KML/KMZ.</p><div class="actions"><button class="btn secondary" id="refreshCloud">Atualizar da nuvem</button><button class="btn secondary" id="kml">Baixar KML</button><button class="btn primary" id="kmz">Baixar KMZ completo</button></div><div id="exportStatus" class="muted small"></div></div>`;$("#refreshCloud").onclick=async()=>{await syncDown();renderAll();alert("Pontos atualizados.")};$("#kml").onclick=()=>download("geofoto-kmz.kml",makeKml(),"application/vnd.google-earth.kml+xml");$("#kmz").onclick=async()=>{const btn=$("#kmz"),st=$("#exportStatus");btn.disabled=true;btn.textContent="Gerando KMZ...";if(st)st.textContent="Preparando pontos e fotos...";try{const z=new JSZip();z.file("doc.kml",makeKml());let fotos=0;for(const p of points){try{let b=null;if(p.photo)b=dataToBlob(p.photo);else if(p.photoUrl)b=await apiBlob(p.photoUrl);if(b){z.file("fotos/"+safeName(p.name)+"-"+String(p.id).slice(0,8)+".jpg",b);fotos++}}catch{}}if(st)st.textContent=`Compactando ${points.length} pontos e ${fotos} fotos...`;const blob=await z.generateAsync({type:"blob",compression:"DEFLATE"});saveBlob(blob,"geofoto-kmz.kmz");if(st)st.textContent=`✓ KMZ gerado com ${points.length} pontos e ${fotos} fotos.`}catch(e){if(st)st.textContent="Falha ao gerar KMZ.";alert("Falha ao gerar KMZ: "+e.message)}finally{btn.disabled=false;btn.textContent="Baixar KMZ completo"}}}
+function renderExport(){
+ const active=getActiveKmzIds(),company=referenceKmz.filter(x=>x.scope==='company'),personal=referenceKmz.filter(x=>x.scope==='personal');
+ const row=x=>`<div class="reference-kmz-row"><label class="reference-toggle"><input type="checkbox" data-kmz-toggle="${attr(x.id)}" ${active.has(x.id)?'checked':''}><span></span></label><div class="reference-kmz-info"><b>${esc(x.name)}</b><small>${formatCloudBytes(x.size_bytes||0)} · ${x.scope==='company'?'Compartilhado pela empresa':'Meu arquivo de referência'}</small></div>${x.canDelete?'<button class="reference-delete" type="button" data-kmz-delete="'+attr(x.id)+'">Excluir</button>':''}</div>`;
+ const companyHtml=company.length?company.map(row).join(''):'<div class="reference-empty">Nenhum KMZ compartilhado pela empresa.</div>';
+ const personalHtml=personal.length?personal.map(row).join(''):'<div class="reference-empty">Você ainda não carregou um KMZ pessoal.</div>';
+ const manager=role==='admin'?company.length+'/5 arquivos compartilhados':'1 arquivo pessoal por login';
+ $("#export").innerHTML=`<div class="card"><h3>Central de registros</h3><p class="muted">Cada foto salva automaticamente já cria um Placemark no KML/KMZ.</p><div class="actions"><button class="btn secondary" id="refreshCloud">Atualizar da nuvem</button><button class="btn secondary" id="kml">Baixar KML</button><button class="btn primary" id="kmz">Baixar KMZ completo</button></div><div id="exportStatus" class="muted small"></div></div>
+ <div class="card reference-kmz-card">
+  <div class="reference-kmz-head"><div><span class="reference-kmz-kicker">CAMADAS DE REFERÊNCIA</span><h3>KMZ no mapa</h3><p class="muted">Os arquivos abaixo são apenas referência visual e não se misturam com os pontos das fotos.</p></div><span class="reference-kmz-limit">${manager}<br>até 20 MB cada</span></div>
+  ${isPersonalMode()?'<div class="reference-empty">Entre com uma conta de empresa para salvar camadas KMZ na nuvem.</div>':`
+   <label class="reference-upload"><input id="referenceKmzFile" type="file" accept=".kmz,application/vnd.google-earth.kmz"><span><b>Carregar KMZ de referência</b><small>${role==='admin'?'Administrador: até 5 arquivos compartilhados com a empresa.':'Colaborador: 1 arquivo pessoal, visível apenas neste login.'}</small></span></label>
+   <div id="referenceKmzStatus" class="muted small"></div>
+   ${role!=='admin'?'<div class="reference-group"><div class="reference-group-title"><b>Meu KMZ</b><span>Somente neste login</span></div>'+personalHtml+'</div>':''}
+   <div class="reference-group"><div class="reference-group-title"><b>KMZ da empresa</b><span>Compartilhados pelo administrador</span></div>${companyHtml}</div>
+  `}
+ </div>`;
+ $("#refreshCloud").onclick=async()=>{await syncDown();await loadReferenceKmz();renderAll();alert("Pontos atualizados.")};
+ $("#kml").onclick=()=>download("geofoto-kmz.kml",makeKml(),"application/vnd.google-earth.kml+xml");
+ $("#kmz").onclick=async()=>{const btn=$("#kmz"),st=$("#exportStatus");btn.disabled=true;btn.textContent="Gerando KMZ...";if(st)st.textContent="Preparando pontos e fotos...";try{const z=new JSZip();z.file("doc.kml",makeKml());let fotos=0;for(const p of points){try{let b=null;if(p.photo)b=dataToBlob(p.photo);else if(p.photoUrl)b=await apiBlob(p.photoUrl);if(b){z.file("fotos/"+safeName(p.name)+"-"+String(p.id).slice(0,8)+".jpg",b);fotos++}}catch{}}if(st)st.textContent=`Compactando ${points.length} pontos e ${fotos} fotos...`;const blob=await z.generateAsync({type:"blob",compression:"DEFLATE"});saveBlob(blob,"geofoto-kmz.kmz");if(st)st.textContent=`✓ KMZ gerado com ${points.length} pontos e ${fotos} fotos.`}catch(e){if(st)st.textContent="Falha ao gerar KMZ.";alert("Falha ao gerar KMZ: "+e.message)}finally{btn.disabled=false;btn.textContent="Baixar KMZ completo"}};
+ const input=$("#referenceKmzFile");if(input)input.onchange=async()=>{const file=input.files?.[0],st=$("#referenceKmzStatus");if(!file)return;st.textContent='Enviando '+file.name+'...';input.disabled=true;try{await uploadReferenceKmz(file);st.textContent='✓ KMZ carregado e ativado no mapa.';renderExport();if(map)await renderReferenceLayers()}catch(e){st.textContent=e.message;alert(e.message)}finally{input.disabled=false}};
+ document.querySelectorAll('[data-kmz-toggle]').forEach(x=>x.onchange=()=>setKmzActive(x.dataset.kmzToggle,x.checked));
+ document.querySelectorAll('[data-kmz-delete]').forEach(b=>b.onclick=async()=>{const item=referenceKmz.find(x=>x.id===b.dataset.kmzDelete);if(!item||!confirm('Excluir o KMZ "'+item.name+'"?'))return;try{await deleteReferenceKmz(item.id);renderExport();if(map)await renderReferenceLayers()}catch(e){alert(e.message)}})
+}
 function renderSettings(){
  const enabled=cfg.enabledTemplates||Object.keys(TEMPLATES);
  $('#settings').innerHTML=`
@@ -713,7 +796,7 @@ function renderSettings(){
  $('#saveTemplates').onclick=async()=>{const ids=[...document.querySelectorAll('[data-template]:checked')].map(x=>x.dataset.template);cfg.enabledTemplates=ids.length?ids:['essential'];cfg.defaultTemplate=cfg.enabledTemplates.includes($('#defaultTemplate').value)?$('#defaultTemplate').value:cfg.enabledTemplates[0];await persist();alert('Modelos atualizados.')};
  $('#refresh').onclick=async()=>{const b=$('#refresh');b.disabled=true;b.textContent=isPersonalMode()?'Atualizando...':'Sincronizando...';paintCloudDemo('sync');try{if(!isPersonalMode())await syncPendingQueue();await syncDown();if(!isPersonalMode())await refreshCloudStorage(true);renderDashboard();renderRecords();renderExport();renderSettings();if(!isPersonalMode())alert('Sincronização concluída. Registros e espaço da nuvem foram atualizados.')}catch{cloudConnected=false;paintCloudDemo();alert('Não foi possível sincronizar agora. Os registros pendentes continuam salvos no aparelho.')}};
  $('#checkUpdate').onclick=async()=>{const st=$('#appUpdateState');st.textContent='Verificando...';const found=await checkForUpdate(true);if(!found)st.textContent='Aplicativo atualizado'};
- $('#logout').onclick=()=>{sessionStorage.removeItem('gf_token');sessionStorage.removeItem('gf_role');sessionStorage.removeItem('gf_tenant');sessionStorage.removeItem(IDENTITY);localStorage.removeItem('gf_token');localStorage.removeItem('gf_role');localStorage.removeItem(IDENTITY);token='';role='user';identity='';loginView()}
+ $('#logout').onclick=()=>{sessionStorage.removeItem('gf_token');sessionStorage.removeItem('gf_role');sessionStorage.removeItem('gf_tenant');sessionStorage.removeItem('gf_user');sessionStorage.removeItem(IDENTITY);localStorage.removeItem('gf_token');localStorage.removeItem('gf_role');localStorage.removeItem('gf_user');localStorage.removeItem(IDENTITY);token='';role='user';currentUser='';identity='';referenceKmz=[];referenceKmzCache.clear();loginView()}
 }
 function makeKml(){return `<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>GeoFoto KMZ</name>${points.map(p=>`<Placemark><name>${xml(p.name)}</name><description>${xml(`${p.note||''} | ${fmt(p.time)} | ${p.city||''} | ${p.address||''} | Precisão ${Math.round(p.accuracy||0)}m`)}</description><Point><coordinates>${p.lng},${p.lat},0</coordinates></Point></Placemark>`).join('')}</Document></kml>`}
 function fileData(f){return new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f)})}
@@ -812,12 +895,27 @@ async function prepareExportFiles(force=false){
  })();
  return exportPreparing
 }
+function referenceKmzPanelHtml(){
+ const active=getActiveKmzIds(),company=referenceKmz.filter(x=>x.scope==='company'),personal=referenceKmz.filter(x=>x.scope==='personal');
+ const row=x=>'<div class="reference-kmz-row"><label class="reference-toggle"><input type="checkbox" data-kmz-toggle="'+attr(x.id)+'" '+(active.has(x.id)?'checked':'')+'><span></span></label><div class="reference-kmz-info"><b>'+esc(x.name)+'</b><small>'+formatCloudBytes(x.size_bytes||0)+' · '+(x.scope==='company'?'Compartilhado pela empresa':'Meu arquivo de referência')+'</small></div>'+(x.canDelete?'<button class="reference-delete" type="button" data-kmz-delete="'+attr(x.id)+'">Excluir</button>':'')+'</div>';
+ const companyHtml=company.length?company.map(row).join(''):'<div class="reference-empty">Nenhum KMZ compartilhado pela empresa.</div>';
+ const personalHtml=personal.length?personal.map(row).join(''):'<div class="reference-empty">Você ainda não carregou um KMZ pessoal.</div>';
+ if(isPersonalMode())return '<div class="card reference-kmz-card"><div class="reference-kmz-head"><div><span class="reference-kmz-kicker">CAMADAS DE REFERÊNCIA</span><h3>KMZ no mapa</h3><p class="muted">Os KMZ de referência são independentes dos pontos e fotos.</p></div></div><div class="reference-empty">Entre com uma conta de empresa para salvar camadas KMZ na nuvem.</div></div>';
+ const manager=role==='admin'?company.length+'/5 arquivos compartilhados':'1 arquivo pessoal por login';
+ return '<div class="card reference-kmz-card"><div class="reference-kmz-head"><div><span class="reference-kmz-kicker">CAMADAS DE REFERÊNCIA</span><h3>KMZ no mapa</h3><p class="muted">Use rotas, áreas, redes ou qualquer outra referência geográfica. Esses dados não se misturam com os pontos das fotos.</p></div><span class="reference-kmz-limit">'+manager+'<br>até 20 MB cada</span></div><label class="reference-upload"><input id="referenceKmzFile" type="file" accept=".kmz,application/vnd.google-earth.kmz"><span><b>Carregar KMZ de referência</b><small>'+(role==='admin'?'Até 5 arquivos compartilhados com todos os usuários desta empresa.':'1 arquivo pessoal, visível somente neste login.')+'</small></span></label><div id="referenceKmzStatus" class="muted small"></div>'+(role!=='admin'?'<div class="reference-group"><div class="reference-group-title"><b>Meu KMZ</b><span>Somente neste login</span></div>'+personalHtml+'</div>':'')+'<div class="reference-group"><div class="reference-group-title"><b>KMZ da empresa</b><span>Compartilhados pelo administrador</span></div>'+companyHtml+'</div></div>'
+}
+function bindReferenceKmzUi(){
+ const input=$('#referenceKmzFile');if(input)input.onchange=async()=>{const file=input.files?.[0],st=$('#referenceKmzStatus');if(!file)return;st.textContent='Enviando '+file.name+'...';input.disabled=true;try{await uploadReferenceKmz(file);if(st)st.textContent='✓ KMZ carregado e ativado no mapa.';renderExport();if(map)await renderReferenceLayers()}catch(e){if(st)st.textContent=e.message;alert(e.message)}finally{input.disabled=false}};
+ document.querySelectorAll('[data-kmz-toggle]').forEach(x=>x.onchange=()=>setKmzActive(x.dataset.kmzToggle,x.checked));
+ document.querySelectorAll('[data-kmz-delete]').forEach(b=>b.onclick=async()=>{const item=referenceKmz.find(x=>x.id===b.dataset.kmzDelete);if(!item||!confirm('Excluir o KMZ "'+item.name+'"?'))return;try{await deleteReferenceKmz(item.id);renderExport();if(map)await renderReferenceLayers()}catch(e){alert(e.message)}})
+}
 renderExport=function(){
  const sig=exportSignature(points),ready=exportPrepared.signature===sig;
- $('#export').innerHTML='<div class="card export-center"><div class="export-badge">KMZ</div><h3>Exportar para Google Earth</h3><p class="muted">Os arquivos são preparados antes do toque em baixar para o Android não bloquear o download.</p><div class="export-metrics"><div><b>'+points.length+'</b><span>Pontos</span></div><div><b>'+points.filter(p=>p.photo||p.photoUrl).length+'</b><span>Fotos</span></div></div><div class="actions"><button class="btn secondary" id="refreshCloud">'+(isPersonalMode()?'Atualizar histórico':'Atualizar nuvem')+'</button><button class="btn secondary" id="kml" '+(ready&&exportPrepared.kml?'':'disabled')+'>'+(ready&&exportPrepared.kml?'Baixar KML':'Preparando KML…')+'</button><button class="btn primary" id="kmz" '+(ready&&exportPrepared.kmz?'':'disabled')+'>'+(ready&&exportPrepared.kmz?'Baixar KMZ completo':'Preparando KMZ…')+'</button></div><div id="exportStatus" class="export-status '+(ready&&exportPrepared.kmz?'ready':'')+'">'+(ready&&exportPrepared.kmz?'✓ Arquivos prontos para baixar.':'Preparando os arquivos para download…')+'</div></div>';
- $('#refreshCloud').onclick=async()=>{const st=$('#exportStatus');try{if(st)st.textContent='Atualizando registros…';if(!isPersonalMode())await syncPendingQueue();await syncDown();exportPrepared={signature:'',kml:null,kmz:null,points:0,photos:0,server:false};renderExport();await prepareExportFiles(true)}catch(e){if(st)st.textContent='⚠ '+(e?.message||'Não foi possível atualizar.')}};
+ $('#export').innerHTML='<div class="card export-center"><div class="export-badge">KMZ</div><h3>Exportar para Google Earth</h3><p class="muted">Os arquivos são preparados antes do toque em baixar para o Android não bloquear o download.</p><div class="export-metrics"><div><b>'+points.length+'</b><span>Pontos</span></div><div><b>'+points.filter(p=>p.photo||p.photoUrl).length+'</b><span>Fotos</span></div></div><div class="actions"><button class="btn secondary" id="refreshCloud">'+(isPersonalMode()?'Atualizar histórico':'Atualizar nuvem')+'</button><button class="btn secondary" id="kml" '+(ready&&exportPrepared.kml?'':'disabled')+'>'+(ready&&exportPrepared.kml?'Baixar KML':'Preparando KML…')+'</button><button class="btn primary" id="kmz" '+(ready&&exportPrepared.kmz?'':'disabled')+'>'+(ready&&exportPrepared.kmz?'Baixar KMZ completo':'Preparando KMZ…')+'</button></div><div id="exportStatus" class="export-status '+(ready&&exportPrepared.kmz?'ready':'')+'">'+(ready&&exportPrepared.kmz?'✓ Arquivos prontos para baixar.':'Preparando os arquivos para download…')+'</div></div>'+referenceKmzPanelHtml();
+ $('#refreshCloud').onclick=async()=>{const st=$('#exportStatus');try{if(st)st.textContent='Atualizando registros…';if(!isPersonalMode())await syncPendingQueue();await syncDown();if(!isPersonalMode())await loadReferenceKmz();exportPrepared={signature:'',kml:null,kmz:null,points:0,photos:0,server:false};renderExport();await prepareExportFiles(true)}catch(e){if(st)st.textContent='⚠ '+(e?.message||'Não foi possível atualizar.')}};
  $('#kml').onclick=()=>{const st=$('#exportStatus');if(!exportPrepared.kml){if(st)st.textContent='O KML ainda está sendo preparado. Aguarde alguns segundos.';return}const name=exportFileName('kml');if(exportPrepared.server){showDownloadNotice(name);if(st)st.textContent='✓ Download do KML solicitado ao navegador. Aguarde a notificação de download.';location.href='/api/export/kml?t='+Date.now();return}saveBlob(exportPrepared.kml,name);if(st)st.textContent='✓ Download do KML iniciado: '+name+' · procure na pasta Downloads.'};
  $('#kmz').onclick=()=>{const st=$('#exportStatus');if(!exportPrepared.kmz){if(st)st.textContent='O KMZ ainda está sendo preparado. Aguarde a mensagem “arquivos prontos”.';return}const name=exportFileName('kmz');if(exportPrepared.server){showDownloadNotice(name);if(st)st.textContent='✓ Gerando o KMZ completo para download. O navegador avisará quando o arquivo estiver pronto.';location.href='/api/export/kmz?t='+Date.now();return}saveBlob(exportPrepared.kmz,name);if(st)st.textContent='✓ Download do KMZ iniciado: '+name+' · procure na pasta Downloads.'};
+ bindReferenceKmzUi();
  if($('#export')?.classList.contains('active')&&!ready)setTimeout(()=>prepareExportFiles().catch(()=>{}),30)
 };
 

@@ -30,15 +30,15 @@ function randomReadable(n=10){const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',a=c
 function companySlug(name){return String(name||'empresa').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,28)||'empresa'}
 async function sessionOf(req,env){
   const token=bearer(req)||cookieToken(req); if(!token)return null
-  if(token===env.GEOFOTO_ADMIN_TOKEN)return{tenant_id:'principal',role:'admin',super:false,legacy:true}
-  if(token===env.GEOFOTO_TOKEN)return{tenant_id:'principal',role:'user',super:false,legacy:true}
+  if(token===env.GEOFOTO_ADMIN_TOKEN)return{tenant_id:'principal',role:'admin',username:'admin',super:false,legacy:true}
+  if(token===env.GEOFOTO_TOKEN)return{tenant_id:'principal',role:'user',username:'colaborador',super:false,legacy:true}
   const now=new Date().toISOString()
   if(token.startsWith('mst_')){
     const master=await env.DB.prepare('SELECT expires_at FROM master_sessions WHERE token=? AND expires_at>?').bind(token,now).first().catch(()=>null)
     return master?{tenant_id:'master',role:'superadmin',super:true,legacy:false}:null
   }
-  const row=await env.DB.prepare('SELECT s.tenant_id,s.role,s.expires_at,t.enabled FROM tenant_sessions s JOIN tenants t ON t.id=s.tenant_id WHERE s.token=? AND s.expires_at>?').bind(token,now).first()
-  return row&&row.enabled?{tenant_id:row.tenant_id,role:row.role,super:false,legacy:false}:null
+  const row=await env.DB.prepare('SELECT s.tenant_id,s.role,s.username,s.expires_at,t.enabled FROM tenant_sessions s JOIN tenants t ON t.id=s.tenant_id WHERE s.token=? AND s.expires_at>?').bind(token,now).first()
+  return row&&row.enabled?{tenant_id:row.tenant_id,role:row.role,username:String(row.username||''),super:false,legacy:false}:null
 }
 const isAdmin=s=>s&&(s.role==='admin'||s.role==='superadmin')
 
@@ -97,14 +97,15 @@ export default {
   if(url.pathname==='/api/login'&&req.method==='POST'){
    const b=await req.json().catch(()=>({})),tenant=cleanTenant(b.account)
    if(tenant==='principal'&&b.user===env.GEOFOTO_ADMIN_USER&&b.pass===env.GEOFOTO_ADMIN_PASS)
-    return json({token:env.GEOFOTO_ADMIN_TOKEN,role:'admin',tenant:'principal',accountName:'Conta principal'})
+    return json({token:env.GEOFOTO_ADMIN_TOKEN,role:'admin',tenant:'principal',username:'admin',accountName:'Conta principal'})
    if(tenant==='principal'&&b.user===env.GEOFOTO_USER&&b.pass===env.GEOFOTO_PASS)
-    return json({token:env.GEOFOTO_TOKEN,role:'user',tenant:'principal',accountName:'Conta principal'})
+    return json({token:env.GEOFOTO_TOKEN,role:'user',tenant:'principal',username:'colaborador',accountName:'Conta principal'})
    const u=await env.DB.prepare('SELECT u.password_hash,u.role,u.enabled,t.name,t.enabled tenant_enabled FROM tenant_users u JOIN tenants t ON t.id=u.tenant_id WHERE u.tenant_id=? AND u.username=?').bind(tenant,String(b.user||'').trim()).first()
    if(!u||!u.enabled||!u.tenant_enabled||!(await verifyPassword(b.pass,u.password_hash)))return json({error:'Conta, usuário ou senha inválidos'},401)
    const token=crypto.randomUUID()+crypto.randomUUID(),exp=new Date(Date.now()+30*86400000).toISOString()
-   await env.DB.prepare('INSERT INTO tenant_sessions (token,tenant_id,role,expires_at) VALUES (?,?,?,?)').bind(token,tenant,u.role,exp).run()
-   return json({token,role:u.role,tenant,accountName:u.name})
+   const username=String(b.user||'').trim()
+   await env.DB.prepare('INSERT INTO tenant_sessions (token,tenant_id,role,username,expires_at) VALUES (?,?,?,?,?)').bind(token,tenant,u.role,username,exp).run()
+   return json({token,role:u.role,tenant,username,accountName:u.name})
   }
   if(!url.pathname.startsWith('/api/'))return env.ASSETS.fetch(req)
   const s=await sessionOf(req,env)
@@ -122,7 +123,7 @@ export default {
 
   if(url.pathname==='/api/account'&&req.method==='GET'){
    const t=await env.DB.prepare('SELECT name FROM tenants WHERE id=?').bind(s.tenant_id).first().catch(()=>null)
-   return json({id:s.tenant_id,name:t?.name||(s.tenant_id==='principal'?'Conta principal':s.tenant_id),role:s.role})
+   return json({id:s.tenant_id,name:t?.name||(s.tenant_id==='principal'?'Conta principal':s.tenant_id),role:s.role,username:s.username||''})
   }
   if(url.pathname==='/api/storage'&&req.method==='GET'){
    const prefix='tenants/'+s.tenant_id+'/photos/'
@@ -135,6 +136,59 @@ export default {
    const freeAllowanceBytes=10000000000
    return json({usedBytes,objects,freeAllowanceBytes,remainingFreeBytes:Math.max(0,freeAllowanceBytes-usedBytes),overFreeBytes:Math.max(0,usedBytes-freeAllowanceBytes),complete:!truncated})
   }
+
+  if(url.pathname==='/api/reference-kmz'&&req.method==='GET'){
+   const username=String(s.username||'')
+   const {results}=await env.DB.prepare("SELECT id,scope,name,size_bytes,owner_username,created_at FROM reference_kmz WHERE tenant_id=? AND (scope='company' OR (scope='personal' AND owner_username=?)) ORDER BY scope,created_at DESC").bind(s.tenant_id,username).all()
+   return json((results||[]).map(r=>({...r,canDelete:r.scope==='company'?isAdmin(s):r.owner_username===username,fileUrl:'/api/reference-kmz/'+r.id+'/file'})))
+  }
+  if(url.pathname==='/api/reference-kmz'&&req.method==='POST'){
+   const username=String(s.username||'')
+   if(!username)return json({error:'Entre novamente no aplicativo para usar KMZ de referência.'},409)
+   const form=await req.formData().catch(()=>null),file=form?.get('file')
+   if(!file||typeof file.arrayBuffer!=='function')return json({error:'Selecione um arquivo KMZ.'},400)
+   const name=String(file.name||'referencia.kmz').trim().slice(0,120)
+   if(!name.toLowerCase().endsWith('.kmz'))return json({error:'Envie um arquivo com extensão .kmz.'},400)
+   if(Number(file.size||0)>20*1024*1024)return json({error:'O KMZ deve ter no máximo 20 MB.'},413)
+   const bytes=await file.arrayBuffer()
+   try{
+    const zip=await JSZip.loadAsync(bytes),entry=Object.values(zip.files).find(x=>!x.dir&&x.name.toLowerCase().endsWith('.kml'))
+    if(!entry)return json({error:'KMZ inválido: arquivo KML interno não encontrado.'},400)
+    const kml=await entry.async('string')
+    if(kml.length>12*1024*1024||!/<kml[\s>]/i.test(kml))return json({error:'KMZ inválido ou complexo demais para visualização.'},400)
+   }catch{return json({error:'Não foi possível abrir este KMZ.'},400)}
+   const scope=isAdmin(s)?'company':'personal'
+   const countRow=await env.DB.prepare("SELECT COUNT(*) n FROM reference_kmz WHERE tenant_id=? AND scope=? AND (?='company' OR owner_username=?)").bind(s.tenant_id,scope,scope,username).first()
+   const count=Number(countRow?.n||0)
+   if(scope==='company'&&count>=5)return json({error:'Limite de 5 KMZ compartilhados da empresa atingido.'},409)
+   if(scope==='personal'&&count>=1){
+    const old=await env.DB.prepare("SELECT id,object_key FROM reference_kmz WHERE tenant_id=? AND scope='personal' AND owner_username=? LIMIT 1").bind(s.tenant_id,username).first()
+    if(old?.object_key)await env.PHOTOS.delete(old.object_key)
+    if(old?.id)await env.DB.prepare('DELETE FROM reference_kmz WHERE id=? AND tenant_id=?').bind(old.id,s.tenant_id).run()
+   }
+   const id=crypto.randomUUID(),objectKey='tenants/'+s.tenant_id+'/reference-kmz/'+scope+'/'+id+'.kmz'
+   await env.PHOTOS.put(objectKey,bytes,{httpMetadata:{contentType:'application/vnd.google-earth.kmz'}})
+   await env.DB.prepare('INSERT INTO reference_kmz (id,tenant_id,owner_username,scope,name,size_bytes,object_key) VALUES (?,?,?,?,?,?,?)').bind(id,s.tenant_id,username,scope,name,Number(file.size||bytes.byteLength||0),objectKey).run()
+   return json({ok:true,id,scope,name,size_bytes:Number(file.size||bytes.byteLength||0)},201)
+  }
+  if(/^\/api\/reference-kmz\/[^/]+\/file$/.test(url.pathname)&&req.method==='GET'){
+   const id=decodeURIComponent(url.pathname.split('/')[3]),username=String(s.username||'')
+   const row=await env.DB.prepare("SELECT object_key,scope,owner_username FROM reference_kmz WHERE id=? AND tenant_id=? AND (scope='company' OR owner_username=?)").bind(id,s.tenant_id,username).first()
+   if(!row)return json({error:'KMZ não encontrado'},404)
+   const obj=await env.PHOTOS.get(row.object_key);if(!obj)return json({error:'Arquivo KMZ não encontrado'},404)
+   return new Response(obj.body,{headers:{'content-type':'application/vnd.google-earth.kmz','cache-control':'private, no-store','content-disposition':'inline'}})
+  }
+  if(/^\/api\/reference-kmz\/[^/]+$/.test(url.pathname)&&req.method==='DELETE'){
+   const id=decodeURIComponent(url.pathname.split('/').pop()||''),username=String(s.username||'')
+   const row=await env.DB.prepare('SELECT scope,owner_username,object_key FROM reference_kmz WHERE id=? AND tenant_id=?').bind(id,s.tenant_id).first()
+   if(!row)return json({error:'KMZ não encontrado'},404)
+   if(row.scope==='company'&&!isAdmin(s))return json({error:'Somente o administrador pode excluir KMZ da empresa.'},403)
+   if(row.scope==='personal'&&row.owner_username!==username)return json({error:'Este KMZ pertence a outro usuário.'},403)
+   if(row.object_key)await env.PHOTOS.delete(row.object_key)
+   await env.DB.prepare('DELETE FROM reference_kmz WHERE id=? AND tenant_id=?').bind(id,s.tenant_id).run()
+   return json({ok:true,id})
+  }
+
   if(url.pathname==='/api/points'&&req.method==='GET'){
    const {results}=await env.DB.prepare('SELECT id,name,note,technician,lat,lng,accuracy,time,city,address,photo_key FROM points WHERE tenant_id=? ORDER BY time ASC').bind(s.tenant_id).all()
    return json(results.map(p=>({...p,photoUrl:p.photo_key?'/api/photo/'+p.id:''})))
