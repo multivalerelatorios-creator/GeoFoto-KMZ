@@ -6,8 +6,8 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.6.0'
-let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.6.1'
+let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,mapBaseLayer=null,mapLabelLayer=null,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
 function uiIcon(name){return '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(UI_PATHS[name]||UI_PATHS.camera)+'</svg>'}
@@ -212,7 +212,7 @@ function loginView(){
  };
 }
 
-async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo"><img src="/icon-192.png" alt="GeoFoto KMZ"></div><div class="brand-account"><b>${esc(accountLabel())}</b><small>GeoFoto KMZ</small></div></div><nav class="nav" aria-label="Navegação principal">${[['dashboard','home','Início'],['capture','camera','Câmera'],['records','records','Registros'],['mapa','map','Mapa'],['export','export','Exportar'],['settings','settings','Config.']].map(([id,icon,label])=>`<button data-page="${id}" class="${id==='capture'?'active':''}" aria-label="${label}">${uiIcon(icon)}<span>${label}</span></button>`).join('')}</nav></aside><main class="main"><header class="top"><button class="app-home" id="homeLink" aria-label="Ir para o início"><img src="/icon-192.png" alt=""><b>GeoFoto KMZ</b></button><button class="header-settings" id="settingsLink" aria-label="Abrir configurações">${uiIcon('settings')}</button><div class="page-heading"><h2 id="title">Câmera</h2><span class="muted">${esc(accountLabel())}</span></div><span id="netStatus" class="status cloud-indicator connecting">☁ Conectando</span></header><div id="cloudDemoBar" class="cloud-demo-bar connecting"><span class="cloud-demo-icon">☁</span><div><b data-cloud-label>☁ Conectando</b><small id="cloudStorageMini">Calculando espaço da nuvem…</small><div class="cloud-storage-mini-track"><i id="cloudStorageMiniFill"></i></div></div><span class="cloud-demo-pulse"></span></div><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="map-tabs"><button id="mapViewButton" class="active" type="button">Mapa</button><button id="mapListButton" type="button">Lista</button><button id="mapLayersButton" class="map-layers-button" type="button">Camadas</button></div><div id="mapLayersPanel" class="map-layers-panel hidden"></div><div class="card map-card"><div id="map"></div></div><div id="mapPointList" class="hidden"></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));$('#homeLink').onclick=()=>goPage('dashboard');$('#settingsLink').onclick=()=>goPage('settings');$('#mapViewButton').onclick=()=>setMapView(false);$('#mapListButton').onclick=()=>setMapView(true);$('#mapLayersButton').onclick=()=>toggleMapLayersPanel();await requestPersistentStorage();await loadLocalFirst();await ensureIdentity();renderAll();paintCloudDemo();setTimeout(()=>{if(navigator.onLine&&!isPersonalMode()){loadReferenceKmz().catch(()=>{});syncDown().then(()=>{renderAll();syncPendingQueue().catch(()=>{});loadReferenceKmz().catch(()=>{})}).catch(()=>{})}},80)}
+async function appView(){$('#app').innerHTML=`<div class="shell"><aside class="side"><div class="brand"><div class="logo"><img src="/icon-192.png" alt="GeoFoto KMZ"></div><div class="brand-account"><b>${esc(accountLabel())}</b><small>GeoFoto KMZ</small></div></div><nav class="nav" aria-label="Navegação principal">${[['dashboard','home','Início'],['capture','camera','Câmera'],['records','records','Registros'],['mapa','map','Mapa'],['export','export','Exportar'],['settings','settings','Config.']].map(([id,icon,label])=>`<button data-page="${id}" class="${id==='capture'?'active':''}" aria-label="${label}">${uiIcon(icon)}<span>${label}</span></button>`).join('')}</nav></aside><main class="main"><header class="top"><button class="app-home" id="homeLink" aria-label="Ir para o início"><img src="/icon-192.png" alt=""><b>GeoFoto KMZ</b></button><button class="header-settings" id="settingsLink" aria-label="Abrir configurações">${uiIcon('settings')}</button><div class="page-heading"><h2 id="title">Câmera</h2><span class="muted">${esc(accountLabel())}</span></div><span id="netStatus" class="status cloud-indicator connecting">☁ Conectando</span></header><div id="cloudDemoBar" class="cloud-demo-bar connecting"><span class="cloud-demo-icon">☁</span><div><b data-cloud-label>☁ Conectando</b><small id="cloudStorageMini">Calculando espaço da nuvem…</small><div class="cloud-storage-mini-track"><i id="cloudStorageMiniFill"></i></div></div><span class="cloud-demo-pulse"></span></div><div id="appBrandBanner" class="app-brand-banner hidden"></div><section id="dashboard" class="section"></section><section id="capture" class="section active"></section><section id="mapa" class="section"><div class="map-tabs"><button id="mapViewButton" class="active" type="button">Mapa</button><button id="mapListButton" type="button">Lista</button><button id="mapLayersButton" class="map-layers-button" type="button">Camadas</button></div><div class="map-base-switch" id="mapBaseSwitch"><button data-map-base="street" type="button">Ruas</button><button data-map-base="satellite" type="button">Satélite</button><button data-map-base="hybrid" type="button">Híbrido</button></div><div id="mapLayersPanel" class="map-layers-panel hidden"></div><div class="card map-card"><div id="map"></div></div><div id="mapPointList" class="hidden"></div></section><section id="records" class="section"></section><section id="export" class="section"></section><section id="settings" class="section"></section></main></div>`;document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>show(b.dataset.page,b));$('#homeLink').onclick=()=>goPage('dashboard');$('#settingsLink').onclick=()=>goPage('settings');$('#mapViewButton').onclick=()=>setMapView(false);$('#mapListButton').onclick=()=>setMapView(true);$('#mapLayersButton').onclick=()=>toggleMapLayersPanel();document.querySelectorAll('[data-map-base]').forEach(b=>b.onclick=()=>setMapBase(b.dataset.mapBase));await requestPersistentStorage();await loadLocalFirst();await ensureIdentity();renderAll();paintCloudDemo();setTimeout(()=>{if(navigator.onLine&&!isPersonalMode()){loadReferenceKmz().catch(()=>{});syncDown().then(()=>{renderAll();syncPendingQueue().catch(()=>{});loadReferenceKmz().catch(()=>{})}).catch(()=>{})}},80)}
 function show(id,b){if(id!=='capture'){stopCamera();if(captureClockTimer){clearInterval(captureClockTimer);captureClockTimer=null}}else if(!captureClockTimer){captureClockTimer=setInterval(updateLiveCaptureOverlay,1000);updateLiveCaptureOverlay()}document.querySelectorAll('.section').forEach(x=>x.classList.remove('active'));$('#'+id).classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.nav button').forEach(x=>x.setAttribute('aria-current',x===b?'page':'false'));$('#title').textContent={dashboard:'Início',capture:'Câmera',mapa:'Mapa geral',records:'Registros',export:'Exportar KML/KMZ',settings:'Configurações'}[id];if(id==='mapa'){setTimeout(()=>{initMap();map.invalidateSize()},180);if(!isPersonalMode()&&navigator.onLine&&(!cloudConnected||Date.now()-lastCloudSync>30000))syncDown().then(()=>{refreshMapPoints();renderDashboard();renderRecords();renderExport()}).catch(()=>{})}if(id==='export')setTimeout(()=>prepareExportFiles().catch(()=>{}),30)}
 async function loadLocalFirst(){
  const pending=await pendingAll().catch(()=>[]);
@@ -643,8 +643,27 @@ function setMapView(list){
  if(list){$('#mapPointList').innerHTML=points.slice().reverse().map(p=>`<button class="map-list-row" data-point-focus="${attr(p.id)}"><b>${esc(p.name)}</b><span>${esc(p.city||'')} · ${fmt(p.time)}</span><span>${esc(p.note||'Sem descrição informada.')}</span></button>`).join('')||'<div class="card">Nenhum ponto registrado.</div>';document.querySelectorAll('[data-point-focus]').forEach(b=>b.onclick=()=>{setMapView(false);const p=points.find(x=>x.id===b.dataset.pointFocus);if(p){map.setView([Number(p.lat),Number(p.lng)],18);markers.eachLayer(m=>{if(m.options.pointId===p.id)m.openPopup()})}})}else{initMap();setTimeout(()=>map.invalidateSize(),30)}
 }
 function mapPrefsKey(){return 'gf_map_prefs:'+String(tenant||'principal')+':'+String(currentUser||role||'user')}
-function getMapPrefs(){try{return {...{photos:true},...JSON.parse(localStorage.getItem(mapPrefsKey())||'{}')}}catch{return{photos:true}}}
-function setMapPref(key,value){const p=getMapPrefs();p[key]=!!value;localStorage.setItem(mapPrefsKey(),JSON.stringify(p));renderMapLayersPanel();if(map){renderPhotoMarkers();renderReferenceLayers().catch(()=>{})}}
+function getMapPrefs(){try{return {...{photos:true,base:'hybrid'},...JSON.parse(localStorage.getItem(mapPrefsKey())||'{}')}}catch{return{photos:true,base:'hybrid'}}}
+function saveMapPrefs(p){localStorage.setItem(mapPrefsKey(),JSON.stringify(p))}
+function setMapPref(key,value){const p=getMapPrefs();p[key]=!!value;saveMapPrefs(p);renderMapLayersPanel();if(map){renderPhotoMarkers();renderReferenceLayers().catch(()=>{})}}
+function setMapBase(type){
+ const allowed=['street','satellite','hybrid'];if(!allowed.includes(type))type='hybrid';
+ const prefs=getMapPrefs();prefs.base=type;saveMapPrefs(prefs);
+ document.querySelectorAll('[data-map-base]').forEach(b=>b.classList.toggle('active',b.dataset.mapBase===type));
+ if(!map)return;
+ if(mapBaseLayer){map.removeLayer(mapBaseLayer);mapBaseLayer=null}if(mapLabelLayer){map.removeLayer(mapLabelLayer);mapLabelLayer=null}
+ if(type==='street'){
+  mapBaseLayer=L.tileLayer('/api/tile/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map)
+ }else{
+  mapBaseLayer=L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Imagery © Esri',maxZoom:19}).addTo(map);
+  if(type==='hybrid'){
+   const labels=L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{attribution:'Labels © Esri',maxZoom:19});
+   const roads=L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',{maxZoom:19});
+   mapLabelLayer=L.layerGroup([roads,labels]).addTo(map)
+  }
+ }
+ if(referenceLayerGroup)referenceLayerGroup.bringToFront?.();if(markers)markers.eachLayer?.(m=>m.bringToFront?.())
+}
 function toggleMapLayersPanel(){const p=$('#mapLayersPanel');if(!p)return;p.classList.toggle('hidden');$('#mapLayersButton')?.classList.toggle('active',!p.classList.contains('hidden'));if(!p.classList.contains('hidden'))renderMapLayersPanel()}
 function renderMapLayersPanel(){
  const host=$('#mapLayersPanel');if(!host)return;
@@ -683,7 +702,7 @@ function renderPhotoMarkers(){
 function pointToSegmentDistancePx(point,a,b){
  const px=map.latLngToContainerPoint(point),pa=map.latLngToContainerPoint(a),pb=map.latLngToContainerPoint(b),vx=pb.x-pa.x,vy=pb.y-pa.y,wx=px.x-pa.x,wy=px.y-pa.y,c2=vx*vx+vy*vy,t=c2?Math.max(0,Math.min(1,(wx*vx+wy*vy)/c2)):0,dx=px.x-(pa.x+t*vx),dy=px.y-(pa.y+t*vy);return Math.sqrt(dx*dx+dy*dy)
 }
-function nearbyReferences(latlng,maxPx=18){
+function nearbyReferences(latlng,maxPx=24){
  const found=[];
  for(const x of referenceFeatureLayers){
   let dist=Infinity;
@@ -691,18 +710,24 @@ function nearbyReferences(latlng,maxPx=18){
   else{const c=x.feature.coords;for(let i=1;i<c.length;i++)dist=Math.min(dist,pointToSegmentDistancePx(latlng,c[i-1],c[i]))}
   if(dist<=maxPx)found.push({...x,dist})
  }
- const unique=new Map();for(const x of found.sort((a,b)=>a.dist-b.dist)){const k=(x.item.id+'|'+x.feature.name);if(!unique.has(k))unique.set(k,x)}
- return [...unique.values()].slice(0,12)
+ const unique=new Map();for(const x of found.sort((a,b)=>a.dist-b.dist)){const k=(x.item.id+'|'+x.feature.name+'|'+x.feature.type);if(!unique.has(k))unique.set(k,x)}
+ return [...unique.values()].slice(0,16)
 }
 function showNearbyReferences(latlng){
  const hits=nearbyReferences(latlng);if(!hits.length)return;
- const box=document.createElement('div');box.className='nearby-reference-popup';const h=document.createElement('b');h.textContent=hits.length===1?'Referência próxima':'Referências próximas';box.append(h);
- hits.forEach(x=>{const row=document.createElement('button');row.type='button';row.innerHTML='<strong>'+esc(x.feature.name||x.item.name)+'</strong><small>'+esc(x.item.name)+'</small>';row.onclick=()=>{highlightReference(x);x.layer.openPopup()};box.append(row)});
- L.popup({maxWidth:300,className:'nearby-reference-leaflet'}).setLatLng(latlng).setContent(box).openOn(map)
+ if(hits.length===1){highlightReference(hits[0]);hits[0].layer.openPopup(latlng);return}
+ const box=document.createElement('div');box.className='nearby-reference-popup';const h=document.createElement('b');h.textContent='Referências neste local';box.append(h);
+ const sub=document.createElement('small');sub.textContent=hits.length+' referências próximas ao toque';box.append(sub);
+ hits.forEach(x=>{const row=document.createElement('button');row.type='button';const sw=document.createElement('i');sw.style.background=referenceStyle(x.item,x.feature).color;const wrap=document.createElement('span'),strong=document.createElement('strong'),small=document.createElement('small');strong.textContent=x.feature.name||x.item.name;small.textContent=x.item.name;wrap.append(strong,small);row.append(sw,wrap);row.onclick=()=>{map.closePopup();highlightReference(x);x.layer.openPopup()};box.append(row)});
+ L.popup({maxWidth:320,className:'nearby-reference-leaflet',autoPan:true}).setLatLng(latlng).setContent(box).openOn(map)
 }
 function highlightReference(target){
- for(const x of referenceFeatureLayers){if(x.layer.setStyle)x.layer.setStyle(x===target?{opacity:1,weight:x.feature.type==='line'?7:4,fillOpacity:x.feature.type==='polygon'?.14:.35}:{opacity:.25,weight:x.feature.type==='line'?3:2,fillOpacity:x.feature.type==='polygon'?.04:.18})}
- setTimeout(()=>{for(const x of referenceFeatureLayers){if(x.layer.setStyle)x.layer.setStyle({opacity:.78,weight:x.feature.type==='line'?3:2,fillOpacity:x.feature.type==='polygon'?.07:.28})}},5000)
+ for(const x of referenceFeatureLayers){
+  if(!x.layer.setStyle)continue;const st=x.baseStyle||referenceStyle(x.item,x.feature);
+  if(x===target)x.layer.setStyle({color:st.color,opacity:1,weight:x.feature.type==='line'?Math.max(7,st.weight+3):Math.max(4,st.weight+1),fillOpacity:x.feature.type==='polygon'?.18:.55});
+  else x.layer.setStyle({color:st.color,opacity:.20,weight:x.feature.type==='line'?Math.max(2,st.weight-1):2,fillOpacity:x.feature.type==='polygon'?.03:.16})
+ }
+ setTimeout(()=>{for(const x of referenceFeatureLayers){if(!x.layer.setStyle)continue;const st=x.baseStyle||referenceStyle(x.item,x.feature);x.layer.setStyle({color:st.color,opacity:st.opacity,weight:x.feature.type==='line'?st.weight:Math.max(2,st.weight-1),fillColor:st.fillColor,fillOpacity:x.feature.type==='polygon'?st.fillOpacity:.45})}},6500)
 }
 function kmzActiveKey(){return 'gf_reference_kmz_active:'+String(tenant||'principal')+':'+String(currentUser||role||'user')}
 function getActiveKmzIds(){try{return new Set(JSON.parse(localStorage.getItem(kmzActiveKey())||'[]'))}catch{return new Set()}}
@@ -728,23 +753,72 @@ async function deleteReferenceKmz(id){
  const ids=getActiveKmzIds();ids.delete(id);localStorage.setItem(kmzActiveKey(),JSON.stringify([...ids]));await loadReferenceKmz()
 }
 function parseKmlCoordinates(text){return String(text||'').trim().split(/\s+/).map(v=>{const a=v.split(',').map(Number);return Number.isFinite(a[0])&&Number.isFinite(a[1])?[a[1],a[0]]:null}).filter(Boolean)}
+function directChildText(el,name){const n=[...(el?.children||[])].find(x=>x.localName===name);return n?.textContent?.trim()||''}
+function localElements(el,name){return [...(el?.getElementsByTagName('*')||[])].filter(x=>x.localName===name)}
+function parseKmlColor(v){
+ const s=String(v||'').trim().replace('#','');if(!/^[0-9a-f]{8}$/i.test(s))return null;
+ const a=parseInt(s.slice(0,2),16)/255,b=s.slice(2,4),g=s.slice(4,6),r=s.slice(6,8);
+ return{color:'#'+r+g+b,opacity:Math.max(.08,Math.min(1,a))}
+}
+function styleFromNode(style){
+ if(!style)return{};
+ const line=localElements(style,'LineStyle')[0],poly=localElements(style,'PolyStyle')[0],icon=localElements(style,'IconStyle')[0];
+ const lc=parseKmlColor(directChildText(line,'color')),pc=parseKmlColor(directChildText(poly,'color')),ic=parseKmlColor(directChildText(icon,'color'));
+ const width=Number(directChildText(line,'width'));
+ return{lineColor:lc?.color,lineOpacity:lc?.opacity,lineWidth:Number.isFinite(width)&&width>0?Math.min(10,width):undefined,polyColor:pc?.color,polyOpacity:pc?.opacity,iconColor:ic?.color}
+}
+function collectKmlStyles(doc){
+ const styles=new Map(),styleMaps=new Map();
+ localElements(doc,'Style').forEach(s=>{const id=s.getAttribute('id');if(id)styles.set('#'+id,styleFromNode(s))});
+ localElements(doc,'StyleMap').forEach(sm=>{const id=sm.getAttribute('id');if(!id)return;let target='';localElements(sm,'Pair').forEach(p=>{if(directChildText(p,'key')==='normal')target=directChildText(p,'styleUrl')});if(target)styleMaps.set('#'+id,target)});
+ return{styles,styleMaps}
+}
+function placemarkStyle(pm,defs){
+ let url=directChildText(pm,'styleUrl');if(defs.styleMaps.has(url))url=defs.styleMaps.get(url);
+ return{...(defs.styles.get(url)||{}),...styleFromNode([...(pm.children||[])].find(x=>x.localName==='Style'))}
+}
+function placemarkDetails(pm){
+ const desc=directChildText(pm,'description'),rows=[];
+ localElements(pm,'Data').forEach(d=>{const k=d.getAttribute('name')||'Campo',v=localElements(d,'value')[0]?.textContent?.trim();if(v)rows.push(k+': '+v)});
+ localElements(pm,'SimpleData').forEach(d=>{const k=d.getAttribute('name')||'Campo',v=d.textContent?.trim();if(v)rows.push(k+': '+v)});
+ return [desc,...rows].filter(Boolean).join('\n')
+}
+function parseGxTrack(track){
+ return localElements(track,'coord').map(x=>{const a=String(x.textContent||'').trim().split(/\s+/).map(Number);return Number.isFinite(a[0])&&Number.isFinite(a[1])?[a[1],a[0]]:null}).filter(Boolean)
+}
 async function parseReferenceKmz(item){
  if(referenceKmzCache.has(item.id))return referenceKmzCache.get(item.id);
- const blob=await apiBlob(item.fileUrl,40000),zip=await JSZip.loadAsync(await blob.arrayBuffer()),entry=Object.values(zip.files).find(x=>!x.dir&&x.name.toLowerCase().endsWith('.kml'));
- if(!entry)throw Error('KML interno não encontrado.');
- const xmlText=await entry.async('string'),doc=new DOMParser().parseFromString(xmlText,'application/xml');
- if(doc.querySelector('parsererror'))throw Error('KML inválido.');
+ const blob=await apiBlob(item.fileUrl,40000),zip=await JSZip.loadAsync(await blob.arrayBuffer()),entries=Object.values(zip.files).filter(x=>!x.dir&&x.name.toLowerCase().endsWith('.kml'));
+ if(!entries.length)throw Error('KML interno não encontrado.');
  const features=[];
- [...doc.getElementsByTagName('Placemark')].forEach(pm=>{
-  const name=pm.getElementsByTagName('name')[0]?.textContent?.trim()||item.name,description=pm.getElementsByTagName('description')[0]?.textContent?.trim()||'';
-  [...pm.getElementsByTagName('LineString')].forEach(g=>{const c=parseKmlCoordinates(g.getElementsByTagName('coordinates')[0]?.textContent);if(c.length>1)features.push({type:'line',coords:c,name,description})});
-  [...pm.getElementsByTagName('Polygon')].forEach(g=>{const c=parseKmlCoordinates(g.getElementsByTagName('coordinates')[0]?.textContent);if(c.length>2)features.push({type:'polygon',coords:c,name,description})});
-  [...pm.getElementsByTagName('Point')].forEach(g=>{const c=parseKmlCoordinates(g.getElementsByTagName('coordinates')[0]?.textContent);if(c[0])features.push({type:'point',coords:c[0],name,description})})
- });
+ for(const entry of entries){
+  const xmlText=await entry.async('string'),doc=new DOMParser().parseFromString(xmlText,'application/xml');
+  if(doc.querySelector('parsererror'))continue;
+  const defs=collectKmlStyles(doc);
+  localElements(doc,'Placemark').forEach(pm=>{
+   const name=directChildText(pm,'name')||item.name,description=placemarkDetails(pm),style=placemarkStyle(pm,defs);
+   localElements(pm,'LineString').forEach(g=>{const c=parseKmlCoordinates(localElements(g,'coordinates')[0]?.textContent);if(c.length>1)features.push({type:'line',coords:c,name,description,style})});
+   localElements(pm,'Polygon').forEach(g=>{const outer=localElements(g,'outerBoundaryIs')[0]||g,c=parseKmlCoordinates(localElements(outer,'coordinates')[0]?.textContent);if(c.length>2)features.push({type:'polygon',coords:c,name,description,style})});
+   localElements(pm,'Point').forEach(g=>{const c=parseKmlCoordinates(localElements(g,'coordinates')[0]?.textContent);if(c[0])features.push({type:'point',coords:c[0],name,description,style})});
+   localElements(pm,'Track').forEach(g=>{const c=parseGxTrack(g);if(c.length>1)features.push({type:'line',coords:c,name,description,style})})
+  })
+ }
+ if(!features.length)throw Error('Nenhuma geometria compatível encontrada neste KMZ.');
  referenceKmzCache.set(item.id,features);return features
 }
-function safeReferencePopup(name,description){
- const box=document.createElement('div'),b=document.createElement('b'),p=document.createElement('div');b.textContent=name||'Referência KMZ';p.textContent=description||'Camada de referência';box.append(b,p);return box
+function referenceFallbackColor(item,feature){
+ const palette=['#2563eb','#ef4444','#10b981','#f59e0b','#8b5cf6','#06b6d4','#f97316','#ec4899','#84cc16','#14b8a6'];
+ const s=String(feature?.name||item?.name||'ref');let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return palette[h%palette.length]
+}
+function referenceStyle(item,feature){
+ const s=feature.style||{},fallback=referenceFallbackColor(item,feature),color=s.lineColor||s.polyColor||s.iconColor||fallback;
+ return{color,opacity:Math.max(.55,Number(s.lineOpacity||.86)),weight:Math.max(2,Number(s.lineWidth||3)),fillColor:s.polyColor||color,fillOpacity:Math.max(.06,Math.min(.28,Number(s.polyOpacity||.10)))}
+}
+function safeReferencePopup(name,description,itemName=''){
+ const box=document.createElement('div');box.className='reference-detail-popup';
+ const b=document.createElement('b');b.textContent=name||'Referência KMZ';box.append(b);
+ if(itemName){const src=document.createElement('small');src.textContent=itemName;box.append(src)}
+ const p=document.createElement('div');p.textContent=description||'Sem descrição adicional no arquivo.';box.append(p);return box
 }
 async function renderReferenceLayers(){
  if(!map)return[];
@@ -754,13 +828,14 @@ async function renderReferenceLayers(){
   try{
    const features=await parseReferenceKmz(item);
    for(const feature of features){
-    let layer=null;
-    if(feature.type==='line')layer=L.polyline(feature.coords,{weight:3,opacity:.78});
-    if(feature.type==='polygon')layer=L.polygon(feature.coords,{weight:2,opacity:.72,fillOpacity:.07});
-    if(feature.type==='point')layer=L.circleMarker(feature.coords,{radius:5,weight:2,fillOpacity:.28});
+    let layer=null;const st=referenceStyle(item,feature);
+    if(feature.type==='line')layer=L.polyline(feature.coords,{color:st.color,weight:st.weight,opacity:st.opacity,lineCap:'round',lineJoin:'round'});
+    if(feature.type==='polygon')layer=L.polygon(feature.coords,{color:st.color,weight:Math.max(2,st.weight-1),opacity:st.opacity,fillColor:st.fillColor,fillOpacity:st.fillOpacity});
+    if(feature.type==='point')layer=L.circleMarker(feature.coords,{radius:6,color:st.color,weight:2,opacity:1,fillColor:st.color,fillOpacity:.45});
     if(layer){
-     const ref={item,feature,layer};referenceFeatureLayers.push(ref);layer.bindPopup(safeReferencePopup(feature.name,feature.description));layer.on('click',()=>highlightReference(ref));layer.addTo(referenceLayerGroup);
-     if(feature.type==='point')bounds.push(feature.coords);else bounds.push(...feature.coords)
+     const ref={item,feature,layer,baseStyle:st};referenceFeatureLayers.push(ref);layer.bindPopup(safeReferencePopup(feature.name,feature.description,item.name));
+     layer.on('click',e=>{L.DomEvent.stopPropagation(e);showNearbyReferences(e.latlng)});
+     layer.addTo(referenceLayerGroup);if(feature.type==='point')bounds.push(feature.coords);else bounds.push(...feature.coords)
     }
    }
   }catch(e){console.warn('Falha ao exibir '+item.name,e)}
@@ -770,12 +845,12 @@ async function renderReferenceLayers(){
 function initMap(){
  const first=!map;
  if(first){
-  map=L.map('map',{zoomControl:true}).setView([-25.43,-49.27],11);
-  L.tileLayer('/api/tile/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:19}).addTo(map);
+  map=L.map('map',{zoomControl:true,preferCanvas:true}).setView([-25.43,-49.27],11);
   markers=L.layerGroup().addTo(map);referenceLayerGroup=L.layerGroup().addTo(map);
+  setMapBase(getMapPrefs().base||'hybrid');
   map.on('zoomend',()=>renderPhotoMarkers());
   map.on('click',e=>{if(referenceFeatureLayers.length)showNearbyReferences(e.latlng)});
- }
+ }else setMapBase(getMapPrefs().base||'hybrid');
  const valid=points.filter(p=>p.lat!==null&&p.lng!==null&&Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lng)));
  renderPhotoMarkers();
  if(first){
@@ -783,7 +858,7 @@ function initMap(){
   else if(valid.length>1)map.fitBounds(L.latLngBounds(valid.map(p=>[Number(p.lat),Number(p.lng)])).pad(.2));
  }
  renderReferenceLayers().then(bounds=>{if(first&&!valid.length&&bounds?.length)map.fitBounds(L.latLngBounds(bounds).pad(.12))}).catch(()=>{});
- renderMapLayersPanel();setTimeout(()=>map.invalidateSize(),200)
+ renderMapLayersPanel();document.querySelectorAll('[data-map-base]').forEach(b=>b.classList.toggle('active',b.dataset.mapBase===(getMapPrefs().base||'hybrid')));setTimeout(()=>map.invalidateSize(),200)
 }
 function renderExport(){
  const active=getActiveKmzIds(),company=referenceKmz.filter(x=>x.scope==='company'),personal=referenceKmz.filter(x=>x.scope==='personal');
