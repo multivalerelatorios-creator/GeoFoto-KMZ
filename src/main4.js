@@ -6,8 +6,8 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.6.4'
-let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,mapBaseLayer=null,mapLabelLayer=null,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.6.5'
+let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,mapBaseLayer=null,mapLabelLayer=null,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,cameraZoom=1,cameraZoomMin=1,cameraZoomMax=5,cameraHardwareZoom=false,pinchStartDistance=0,pinchStartZoom=1,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
 function uiIcon(name){return '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(UI_PATHS[name]||UI_PATHS.camera)+'</svg>'}
@@ -99,8 +99,29 @@ async function api(path,opt={}){
  finally{clearTimeout(timer)}
 }
 async function apiBlob(path,timeoutMs=12000){const h={};if(token)h.Authorization=`Bearer ${token}`;const base=path.startsWith('/api/')?path:'/api'+path,url=base+(base.includes('?')?'&':'?')+'_v='+Date.now(),ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),timeoutMs);try{const r=await fetch(url,{headers:h,signal:ctrl.signal,cache:'no-store'});if(!r.ok)throw Error('Falha ao carregar arquivo');return r.blob()}finally{clearTimeout(timer)}}
-function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}torchOn=false;torchSupported=false;updateTorchButton()}
+function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}torchOn=false;torchSupported=false;cameraZoom=1;cameraZoomMin=1;cameraZoomMax=5;cameraHardwareZoom=false;pinchStartDistance=0;updateTorchButton();updateZoomIndicator()}
 function updateTorchButton(){const b=$('#flashToggle');if(!b)return;b.disabled=!torchSupported;b.classList.toggle('active',torchOn);b.innerHTML=torchOn?'🔦 Flash ligado':'⚡ Flash';b.title=torchSupported?'Ligar ou desligar o flash da câmera':'Flash não disponível nesta câmera'}
+function updateZoomIndicator(){
+ const z=$('#zoomIndicator'),v=$('#camera');if(z){z.textContent=cameraZoom.toFixed(1).replace('.0','')+'×';z.classList.toggle('zoomed',cameraZoom>1.01)}
+ if(v)v.style.transform=cameraHardwareZoom?'none':'scale('+cameraZoom+')'
+}
+async function detectCameraZoom(){
+ const t=stream?.getVideoTracks?.()[0];let caps={};try{caps=t?.getCapabilities?.()||{}}catch{}
+ const z=caps?.zoom;cameraHardwareZoom=!!(z&&Number.isFinite(Number(z.min))&&Number.isFinite(Number(z.max))&&Number(z.max)>Number(z.min));
+ cameraZoomMin=cameraHardwareZoom?Math.max(1,Number(z.min)):1;cameraZoomMax=cameraHardwareZoom?Math.max(cameraZoomMin,Number(z.max)):5;
+ cameraZoom=Math.max(cameraZoomMin,Math.min(cameraZoomMax,1));updateZoomIndicator()
+}
+function touchDistance(a,b){return Math.hypot(Number(a.clientX)-Number(b.clientX),Number(a.clientY)-Number(b.clientY))}
+async function setCameraZoom(value){
+ const z=Math.max(cameraZoomMin,Math.min(cameraZoomMax,Number(value)||1));cameraZoom=z;updateZoomIndicator();
+ if(cameraHardwareZoom){const t=stream?.getVideoTracks?.()[0];try{await t?.applyConstraints?.({advanced:[{zoom:z}]})}catch{cameraHardwareZoom=false;updateZoomIndicator()}}
+}
+function setupPinchZoom(){
+ const wrap=document.querySelector('.camera-preview-wrap');if(!wrap||wrap.dataset.pinchZoom==='1')return;wrap.dataset.pinchZoom='1';
+ wrap.addEventListener('touchstart',e=>{if(e.touches.length===2){pinchStartDistance=touchDistance(e.touches[0],e.touches[1]);pinchStartZoom=cameraZoom}}, {passive:true});
+ wrap.addEventListener('touchmove',e=>{if(e.touches.length!==2||!pinchStartDistance)return;e.preventDefault();const d=touchDistance(e.touches[0],e.touches[1]);setCameraZoom(pinchStartZoom*(d/pinchStartDistance))}, {passive:false});
+ wrap.addEventListener('touchend',e=>{if(e.touches.length<2)pinchStartDistance=0},{passive:true});
+}
 async function detectTorch(){const t=stream?.getVideoTracks?.()[0];let caps={};try{caps=t?.getCapabilities?.()||{}}catch{}torchSupported=!!(t&&caps.torch);torchOn=false;updateTorchButton();return torchSupported}
 async function toggleTorch(){const t=stream?.getVideoTracks?.()[0];if(!t)return;let caps={};try{caps=t.getCapabilities?.()||{}}catch{}if(!caps.torch){torchSupported=false;updateTorchButton();const info=$('#camInfo');if(info)info.textContent='Este aparelho/câmera não permite controlar o flash pelo navegador.';return}try{torchOn=!torchOn;await t.applyConstraints({advanced:[{torch:torchOn}]});torchSupported=true;updateTorchButton();const info=$('#camInfo');if(info)info.textContent=torchOn?'Flash ligado para fotos noturnas.':'Flash desligado.'}catch(e){torchOn=false;updateTorchButton();const info=$('#camInfo');if(info)info.textContent='Não foi possível alterar o flash nesta câmera.'}}
 function ensureIdentity(){
@@ -293,7 +314,7 @@ function renderCapture(){
    <div id="liveCameraMap" class="live-camera-map"><span>MAPA</span><small id="liveMapStatus">GPS</small></div>
   </div>
  </div>
- <button class="flash-toggle" id="flashToggle" type="button" disabled title="Flash não disponível nesta câmera">⚡ Flash</button></div><canvas id="canvas" class="hidden"></canvas><img id="preview" class="camera-large hidden">
+ <div id="zoomIndicator" class="camera-zoom-indicator">1×</div><button class="flash-toggle" id="flashToggle" type="button" disabled title="Flash não disponível nesta câmera">⚡ Flash</button></div><canvas id="canvas" class="hidden"></canvas><img id="preview" class="camera-large hidden">
  <div class="actions shutter-actions"><button class="btn primary" id="take" disabled aria-label="Tirar foto">${uiIcon('camera')}<span>Tirar foto</span></button><button class="btn secondary hidden" id="retake">↻ Tirar novamente</button></div>
 
  <div class="actions"><button class="btn secondary" id="gps" disabled>Atualizar GPS</button></div><div class="actions hidden" id="shareActions"><button class="btn primary" id="shareBtn">📤 Enviar</button><button class="btn secondary" id="downloadBtn">⬇ Salvar foto</button></div>
@@ -302,7 +323,7 @@ function renderCapture(){
  const pn=$('#pointName'),hint=$('#pointNameHint'),note=$('#note');
  pn.addEventListener('input',()=>{const start=pn.selectionStart,end=pn.selectionEnd;pn.value=pn.value.toLocaleUpperCase('pt-BR');try{pn.setSelectionRange(start,end)}catch{}hint.textContent=pn.value.trim()?'Identificação informada.':'Informe a identificação antes da foto.';updateCaptureReady()});
  note?.addEventListener('input',updateLiveCaptureOverlay);
- $('#take').onclick=takePhoto;$('#retake').onclick=retake;$('#gps').onclick=getGps;$('#retrySensors').onclick=startCameraAndGps;$('#flashToggle').onclick=toggleTorch;
+ $('#take').onclick=takePhoto;$('#retake').onclick=retake;$('#gps').onclick=getGps;$('#retrySensors').onclick=startCameraAndGps;$('#flashToggle').onclick=toggleTorch;setupPinchZoom();
  $('#templateSelect').onchange=e=>{const t=TEMPLATES[e.target.value];$('#templateHint').textContent=t?.description||'';$('#templatePreview').innerHTML=`<b>${t?.name||''}</b><p class="muted">${t?.description||''}</p>`;updateLiveCaptureOverlay()}
  if(captureClockTimer)clearInterval(captureClockTimer);captureClockTimer=setInterval(updateLiveCaptureOverlay,1000);
  updateCaptureReady();updateLiveCaptureOverlay();
@@ -353,7 +374,7 @@ async function startCamera(){
   await new Promise((resolve,reject)=>{const done=()=>{cleanup();resolve()};const fail=()=>{cleanup();reject(new Error('A câmera não iniciou.'))};const cleanup=()=>{v.removeEventListener('loadedmetadata',done);v.removeEventListener('error',fail)};v.addEventListener('loadedmetadata',done,{once:true});v.addEventListener('error',fail,{once:true});setTimeout(done,1800)});
   await v.play();await new Promise(r=>setTimeout(r,120));
   if(!v.videoWidth)throw new Error('Prévia da câmera não disponível.');
-  set('ok','Câmera pronta');await detectTorch();updateCaptureReady();return true
+  set('ok','Câmera pronta');await detectTorch();await detectCameraZoom();setupPinchZoom();updateCaptureReady();return true
  }catch(e){
   const denied=e?.name==='NotAllowedError'||e?.name==='SecurityError';
   set('error',denied?'Permissão da câmera bloqueada. Toque em “Reativar câmera e GPS”.':'Falha ao abrir câmera: '+(e?.message||'erro'));
@@ -369,6 +390,7 @@ async function takePhoto(){
  const portrait=innerHeight>innerWidth,outW=portrait?1080:1920,outH=portrait?1440:1080;c.width=outW;c.height=outH;
  const sx=v.videoWidth,sy=v.videoHeight,src=sx/sy,dst=outW/outH;let sw=sx,sh=sy,ox=0,oy=0;
  if(src>dst){sw=Math.round(sy*dst);ox=Math.round((sx-sw)/2)}else{sh=Math.round(sx/dst);oy=Math.round((sy-sh)/2)}
+ if(!cameraHardwareZoom&&cameraZoom>1.01){const zw=sw/cameraZoom,zh=sh/cameraZoom;ox+=Math.round((sw-zw)/2);oy+=Math.round((sh-zh)/2);sw=Math.round(zw);sh=Math.round(zh)}
  c.getContext('2d').drawImage(v,ox,oy,sw,sh,0,0,outW,outH);
  raw=c.toDataURL('image/jpeg',.9);photo=raw;savedPhotoKey=raw.slice(0,80)+Date.now();stopCamera();
  const st=$('#saveStatus');if(st)st.textContent='Foto tirada. Salvando registro...';
