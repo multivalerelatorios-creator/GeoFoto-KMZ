@@ -123,7 +123,10 @@ export default {
 
   if(url.pathname==='/api/account'&&req.method==='GET'){
    const t=await env.DB.prepare('SELECT name FROM tenants WHERE id=?').bind(s.tenant_id).first().catch(()=>null)
-   return json({id:s.tenant_id,name:t?.name||(s.tenant_id==='principal'?'Conta principal':s.tenant_id),role:s.role,username:s.username||''})
+   const username=String(s.username||'')
+   const refs=await env.DB.prepare("SELECT id,scope,name,size_bytes,owner_username,created_at FROM reference_kmz WHERE tenant_id=? AND (scope='company' OR (scope='personal' AND owner_username=?)) ORDER BY scope,created_at DESC").bind(s.tenant_id,username).all().catch(()=>({results:[]}))
+   const referenceKmz=(refs.results||[]).map(r=>({...r,canDelete:r.scope==='company'?isAdmin(s):r.owner_username===username,fileUrl:'/api/reference-kmz/'+r.id+'/file'}))
+   return json({id:s.tenant_id,name:t?.name||(s.tenant_id==='principal'?'Conta principal':s.tenant_id),role:s.role,username,referenceKmz})
   }
   if(url.pathname==='/api/storage'&&req.method==='GET'){
    const prefix='tenants/'+s.tenant_id+'/photos/'

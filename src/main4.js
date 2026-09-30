@@ -6,7 +6,7 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.6.3'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.6.4'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,mapBaseLayer=null,mapLabelLayer=null,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',torchOn=false,torchSupported=false,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
@@ -735,9 +735,16 @@ function setKmzActive(id,on){const ids=getActiveKmzIds();if(on)ids.add(id);else 
 async function loadReferenceKmz(){
  if(isPersonalMode()||!token){referenceKmz=[];return referenceKmz}
  try{
-  if(!currentUser){const a=await api('/account',{timeout:5000});currentUser=a.username||'';sessionStorage.setItem('gf_user',currentUser);localStorage.setItem('gf_user',currentUser)}
-  const list=await api('/reference-kmz',{timeout:12000});referenceKmz=Array.isArray(list)?list:[];renderExport();if(map)await renderReferenceLayers();return referenceKmz
- }catch(e){console.warn('KMZ de referência indisponível',e);return referenceKmz}
+  const account=await api('/account',{timeout:8000});
+  if(account?.id&&account.id!==tenant){tenant=account.id;sessionStorage.setItem('gf_tenant',tenant);localStorage.setItem(ACCOUNT,tenant)}
+  role=account?.role||role;currentUser=account?.username||currentUser||'';
+  sessionStorage.setItem('gf_role',role);localStorage.setItem('gf_role',role);sessionStorage.setItem('gf_user',currentUser);localStorage.setItem('gf_user',currentUser);
+  let list=[];
+  try{list=await api('/reference-kmz',{timeout:12000})}catch{}
+  const fallback=Array.isArray(account?.referenceKmz)?account.referenceKmz:[];
+  referenceKmz=Array.isArray(list)&&list.length?list:fallback;
+  renderExport();renderMapLayersPanel();if(map)await renderReferenceLayers();return referenceKmz
+ }catch(e){console.warn('KMZ de referência indisponível',e);renderExport();return referenceKmz}
 }
 async function uploadReferenceKmz(file){
  if(!file)throw Error('Selecione um arquivo KMZ.');
