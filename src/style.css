@@ -276,3 +276,11 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-ser
 .camera-zoom-indicator{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:9;min-width:46px;text-align:center;padding:7px 10px;border-radius:999px;background:rgba(7,17,29,.72);border:1px solid rgba(255,255,255,.20);color:#fff;font-weight:850;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,.28);backdrop-filter:blur(8px);pointer-events:none;opacity:.72}
 .camera-zoom-indicator.zoomed{opacity:1;background:rgba(22,119,255,.82)}
 @media(max-width:560px){.camera-zoom-indicator{bottom:12px;font-size:12px;padding:6px 9px}}
+
+/* Busca de registros por identificação/descrição */
+.records-toolbar{flex-wrap:wrap}
+.records-search{flex:1 1 360px}
+.records-search input{width:100%;min-height:44px;padding:10px 12px;border-radius:11px;border:1px solid rgba(96,165,250,.24);background:#0b1726;color:#fff;font-weight:700;outline:none}
+.records-search input::placeholder{color:#7f95aa;font-weight:500}
+.records-search input:focus{border-color:#4f9cff;box-shadow:0 0 0 3px rgba(79,156,255,.12)}
+@media(max-width:680px){.records-toolbar{align-items:stretch}.records-toolbar label{min-width:100%}.records-filter-count{justify-items:start;width:100%;padding-top:2px}}
