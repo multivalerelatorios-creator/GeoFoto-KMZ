@@ -6,8 +6,8 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.6.6'
-let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,mapBaseLayer=null,mapLabelLayer=null,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',recordSearchFilter='',recordSearchTimer=null,torchOn=false,torchSupported=false,cameraZoom=1,cameraZoomMin=1,cameraZoomMax=5,cameraHardwareZoom=false,pinchStartDistance=0,pinchStartZoom=1,captureClockTimer=null
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', APP_VERSION='1.6.7'
+let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,mapBaseLayer=null,mapLabelLayer=null,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),photoBlobCache=new Map(),photoBlobInFlight=new Map(),recordPhotoObserver=null,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',recordSearchFilter='',recordSearchTimer=null,torchOn=false,torchSupported=false,cameraZoom=1,cameraZoomMin=1,cameraZoomMax=5,cameraHardwareZoom=false,pinchStartDistance=0,pinchStartZoom=1,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
 function uiIcon(name){return '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(UI_PATHS[name]||UI_PATHS.camera)+'</svg>'}
@@ -99,6 +99,29 @@ async function api(path,opt={}){
  finally{clearTimeout(timer)}
 }
 async function apiBlob(path,timeoutMs=12000){const h={};if(token)h.Authorization=`Bearer ${token}`;const base=path.startsWith('/api/')?path:'/api'+path,url=base+(base.includes('?')?'&':'?')+'_v='+Date.now(),ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),timeoutMs);try{const r=await fetch(url,{headers:h,signal:ctrl.signal,cache:'no-store'});if(!r.ok)throw Error('Falha ao carregar arquivo');return r.blob()}finally{clearTimeout(timer)}}
+function photoCacheKey(p){return String(p?.id||'')+'|'+String(p?.time||'')+'|'+String(p?.note||'')}
+function trimPhotoBlobCache(){while(photoBlobCache.size>10){const k=photoBlobCache.keys().next().value;photoBlobCache.delete(k)}}
+async function getRecordPhotoBlob(p){
+ if(!p)return null;const key=photoCacheKey(p);
+ if(photoBlobCache.has(key)){const b=photoBlobCache.get(key);photoBlobCache.delete(key);photoBlobCache.set(key,b);return b}
+ if(photoBlobInFlight.has(key))return photoBlobInFlight.get(key);
+ const task=(async()=>{let b=null;if(p.photo)b=dataToBlob(p.photo);else if(p.photoUrl)b=await apiBlob(p.photoUrl,20000);if(b){photoBlobCache.set(key,b);trimPhotoBlobCache()}return b})().finally(()=>photoBlobInFlight.delete(key));
+ photoBlobInFlight.set(key,task);return task
+}
+function clearRecordPhotoCache(id){const prefix=String(id||'')+'|';for(const k of [...photoBlobCache.keys()])if(k.startsWith(prefix))photoBlobCache.delete(k);for(const k of [...photoBlobInFlight.keys()])if(k.startsWith(prefix))photoBlobInFlight.delete(k)}
+async function loadRecordPhotoElement(img){
+ if(!img||img.dataset.photoLoaded==='1'||img.dataset.photoLoading==='1')return;const p=points.find(x=>x.id===img.dataset.photoId);if(!p)return;
+ img.dataset.photoLoading='1';
+ try{const b=await getRecordPhotoBlob(p);if(!b||!img.isConnected)return;const u=URL.createObjectURL(b);img.src=u;img.dataset.photoLoaded='1';img.dataset.loadedVersion=photoCacheKey(p);img.onload=()=>setTimeout(()=>URL.revokeObjectURL(u),60000)}
+ catch{img.alt='Foto indisponível'}finally{delete img.dataset.photoLoading}
+}
+function setupRecordPhotoLazyLoading(){
+ try{recordPhotoObserver?.disconnect?.()}catch{}recordPhotoObserver=null;
+ const imgs=[...document.querySelectorAll('[data-photo-id]')];if(!imgs.length)return;
+ if(!('IntersectionObserver'in window)){imgs.forEach(img=>loadRecordPhotoElement(img));return}
+ recordPhotoObserver=new IntersectionObserver(entries=>{for(const e of entries){if(!e.isIntersecting)continue;recordPhotoObserver.unobserve(e.target);loadRecordPhotoElement(e.target)}},{rootMargin:'650px 0px',threshold:.01});
+ imgs.forEach(img=>recordPhotoObserver.observe(img))
+}
 function stopCamera(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}torchOn=false;torchSupported=false;cameraZoom=1;cameraZoomMin=1;cameraZoomMax=5;cameraHardwareZoom=false;pinchStartDistance=0;updateTorchButton();updateZoomIndicator()}
 function updateTorchButton(){const b=$('#flashToggle');if(!b)return;b.disabled=!torchSupported;b.classList.toggle('active',torchOn);b.innerHTML=torchOn?'🔦 Flash ligado':'⚡ Flash';b.title=torchSupported?'Ligar ou desligar o flash da câmera':'Flash não disponível nesta câmera'}
 function updateZoomIndicator(){
@@ -139,7 +162,7 @@ async function startTenantSession(d,account){
  token=d.token;role=d.role||'user';tenant=d.tenant||account||'principal';currentUser=d.username||'';identity='';cfg=loadCfg();mergeLocalBrand();
  sessionStorage.setItem('gf_token',token);sessionStorage.setItem('gf_role',role);sessionStorage.setItem('gf_tenant',tenant);sessionStorage.setItem('gf_user',currentUser);
  localStorage.setItem('gf_token',token);localStorage.setItem('gf_role',role);localStorage.setItem('gf_user',currentUser);localStorage.setItem(ACCOUNT,tenant);
- sessionStorage.removeItem(IDENTITY);localStorage.removeItem(IDENTITY);referenceKmz=[];referenceKmzCache.clear();await appView()
+ sessionStorage.removeItem(IDENTITY);localStorage.removeItem(IDENTITY);referenceKmz=[];referenceKmzCache.clear();photoBlobCache.clear();photoBlobInFlight.clear();try{recordPhotoObserver?.disconnect?.()}catch{}recordPhotoObserver=null;await appView()
 }
 async function copyText(v){
  try{await navigator.clipboard.writeText(v);return true}
@@ -550,9 +573,9 @@ async function downloadCurrentPhoto(){const src=photo||raw;if(!src)return;const 
 function googleMapsLink(lat,lng){const a=Number(lat),b=Number(lng);return Number.isFinite(a)&&Number.isFinite(b)?'https://www.google.com/maps/search/?api=1&query='+a.toFixed(6)+','+b.toFixed(6):''}
 function shareMessage({name='',note='',lat,lng,technician=''}){const map=googleMapsLink(lat,lng),lines=['GeoFoto KMZ'];if(name)lines.push('Ponto: '+name);if(technician)lines.push('Técnico: '+technician);if(note)lines.push('Descrição: '+note);if(map)lines.push('Abrir no Google Maps: '+map);return lines.join('\n')}
 async function shareCurrent(){const src=photo||raw;if(!src)return;const point=($('#pointName')?.value.trim()||'Registro').toLocaleUpperCase('pt-BR'),note=$('#note')?.value.trim()||'',data={name:point,note,lat:geo?.latitude,lng:geo?.longitude,technician:identity};return shareBlob(dataToBlob(src),`${safeName(point)}-${Date.now()}.jpg`,data)}
-async function shareRecord(id){const p=points.find(x=>x.id===id);if(!p)return;const data={name:p.name,note:p.note,lat:p.lat,lng:p.lng,technician:p.technician||''};if(p.photo)return shareBlob(dataToBlob(p.photo),`${safeName(p.name)}.jpg`,data);if(p.photoUrl){const b=await apiBlob(p.photoUrl);return shareBlob(b,`${safeName(p.name)}.jpg`,data)}}
+async function shareRecord(id){const p=points.find(x=>x.id===id);if(!p)return;const data={name:p.name,note:p.note,lat:p.lat,lng:p.lng,technician:p.technician||''},btn=document.querySelector('[data-share="'+CSS.escape(String(id))+'"]'),old=btn?.textContent||'Enviar';if(btn){btn.disabled=true;btn.textContent='Preparando...'}try{const b=await getRecordPhotoBlob(p);if(b)return await shareBlob(b,`${safeName(p.name)}.jpg`,data)}finally{if(btn?.isConnected){btn.disabled=false;btn.textContent=old}}}
 async function shareBlob(blob,name,data={}){const f=new File([blob],name,{type:'image/jpeg'}),text=shareMessage(data),url=googleMapsLink(data.lat,data.lng),payload={title:'GeoFoto KMZ',text,files:[f]};if(navigator.canShare&&navigator.canShare({files:[f]})){try{return await navigator.share(payload)}catch(e){if(e?.name==='AbortError')return;try{return await navigator.share({title:'GeoFoto KMZ',text,files:[f]})}catch(e2){if(e2?.name==='AbortError')return}}}saveBlob(blob,name);if(url){try{await navigator.clipboard.writeText(text);alert('Foto salva. O link do Google Maps foi copiado para você enviar junto.')}catch{alert('Foto salva. Local: '+url)}}}
-async function openRecordPhoto(id){const p=points.find(x=>x.id===id);if(!p)return;let src=p.photo||'',revoke='';try{if(!src&&p.photoUrl){const b=await apiBlob(p.photoUrl);src=URL.createObjectURL(b);revoke=src}if(!src)return;const box=document.createElement('div');box.className='photo-lightbox';const img=document.createElement('img');img.src=src;img.alt='Foto '+p.name;const meta=document.createElement('div');meta.className='photo-lightbox-meta';meta.innerHTML='<b>'+esc(p.name)+'</b><span>'+esc(fmt(p.time))+' · '+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6)+'</span>';const close=document.createElement('button');close.className='photo-lightbox-close';close.textContent='×';const done=()=>{box.remove();if(revoke)URL.revokeObjectURL(revoke)};close.onclick=done;box.onclick=e=>{if(e.target===box)done()};box.append(close,img,meta);document.body.appendChild(box)}catch(e){alert('Não foi possível abrir a foto: '+e.message)}}
+async function openRecordPhoto(id){const p=points.find(x=>x.id===id);if(!p)return;let src=p.photo||'',revoke='';try{if(!src){const b=await getRecordPhotoBlob(p);if(b){src=URL.createObjectURL(b);revoke=src}}if(!src)return;const box=document.createElement('div');box.className='photo-lightbox';const img=document.createElement('img');img.src=src;img.alt='Foto '+p.name;const meta=document.createElement('div');meta.className='photo-lightbox-meta';meta.innerHTML='<b>'+esc(p.name)+'</b><span>'+esc(fmt(p.time))+' · '+Number(p.lat).toFixed(6)+', '+Number(p.lng).toFixed(6)+'</span>';const close=document.createElement('button');close.className='photo-lightbox-close';close.textContent='×';const done=()=>{box.remove();if(revoke)URL.revokeObjectURL(revoke)};close.onclick=done;box.onclick=e=>{if(e.target===box)done()};box.append(close,img,meta);document.body.appendChild(box)}catch(e){alert('Não foi possível abrir a foto: '+e.message)}}
 function recordDateTimeLocal(v){
  const d=new Date(v);if(Number.isNaN(d.getTime()))return '';
  const local=new Date(d.getTime()-d.getTimezoneOffset()*60000);
@@ -560,7 +583,7 @@ function recordDateTimeLocal(v){
 }
 async function redrawEditedRecordPhoto(p){
  let src=p.photo||'';
- if(!src&&p.photoUrl){const b=await apiBlob(p.photoUrl);src=await fileData(b)}
+ if(!src&&p.photoUrl){const b=await getRecordPhotoBlob(p);src=b?await fileData(b):''}
  if(!src)throw Error('Foto do registro não está disponível.');
  const img=await loadImg(src,8000),c=document.createElement('canvas'),x=c.getContext('2d');
  c.width=img.naturalWidth||img.width;c.height=img.naturalHeight||img.height;x.drawImage(img,0,0,c.width,c.height);
@@ -643,6 +666,14 @@ function openRecordEdit(id){
   }
  }
 }
+async function deleteRecordFast(id){
+ const previous=points.slice(),target=points.find(p=>p.id===id);if(!target||!confirm('Excluir este registro e a foto?'))return;
+ points=points.filter(p=>p.id!==id);clearRecordPhotoCache(id);await pendingDelete(id).catch(()=>{});await snapshotPut(points).catch(()=>{});
+ cloudRecords=Math.max(0,cloudRecords-1);localStorage.setItem(cloudCountKey(),String(cloudRecords));
+ renderDashboard();renderRecords();renderExport();if(map)refreshMapPoints();
+ try{await api('/points/'+encodeURIComponent(id),{method:'DELETE',timeout:15000});refreshCloudStorage(true).catch(()=>{})}
+ catch(e){points=previous;await snapshotPut(points).catch(()=>{});renderDashboard();renderRecords();renderExport();if(map)refreshMapPoints();alert('Não foi possível excluir: '+e.message)}
+}
 function renderRecords(){
  const techs=[...new Set(points.map(p=>String(p.technician||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
  const hasUnknown=points.some(p=>!String(p.technician||'').trim());
@@ -656,11 +687,11 @@ function renderRecords(){
  $('#recordsAll').onclick=()=>{recordDateFilter='';recordTechnicianFilter='';recordSearchFilter='';renderRecords()};$('#recordsToday').onclick=()=>{recordDateFilter='today';renderRecords()};$('#recordsByTech').onclick=()=>$('#technicianFilter').focus();
  const searchInput=$('#recordSearch');if(searchInput){searchInput.oninput=()=>{recordSearchFilter=searchInput.value;if(recordSearchTimer)clearTimeout(recordSearchTimer);recordSearchTimer=setTimeout(()=>{renderRecords();const next=$('#recordSearch');if(next){next.focus();try{next.setSelectionRange(recordSearchFilter.length,recordSearchFilter.length)}catch{}}},220)}}
  const filter=$('#technicianFilter');if(filter)filter.onchange=()=>{recordTechnicianFilter=filter.value;renderRecords()};
- document.querySelectorAll('[data-photo-id]').forEach(async img=>{const p=points.find(x=>x.id===img.dataset.photoId);try{if(p?.photo)img.src=p.photo;else if(p?.photoUrl){const b=await apiBlob(p.photoUrl),u=URL.createObjectURL(b);img.src=u;img.dataset.loadedVersion=String(p.time||Date.now());img.onload=()=>setTimeout(()=>URL.revokeObjectURL(u),30000)}}catch{img.alt='Foto indisponível'}});
+ setupRecordPhotoLazyLoading();
  document.querySelectorAll('[data-map]').forEach(b=>b.onclick=()=>window.open('https://www.google.com/maps?q='+b.dataset.map,'_blank'));
  document.querySelectorAll('[data-share]').forEach(b=>b.onclick=()=>shareRecord(b.dataset.share));
  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openRecordEdit(b.dataset.edit));
- document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=async()=>{if(!confirm('Excluir este registro e a foto?'))return;try{await api('/points/'+b.dataset.delete,{method:'DELETE'});await syncDown();renderDashboard();renderRecords();renderExport();if(map)initMap()}catch(e){alert(e.message)}})
+ document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>deleteRecordFast(b.dataset.delete))
 }
 function setMapView(list){
  $('#mapPointList').classList.toggle('hidden',!list);$('#mapa .map-card').classList.toggle('hidden',list);
@@ -975,7 +1006,7 @@ function renderSettings(){
  $('#saveTemplates').onclick=async()=>{const ids=[...document.querySelectorAll('[data-template]:checked')].map(x=>x.dataset.template);cfg.enabledTemplates=ids.length?ids:['essential'];cfg.defaultTemplate=cfg.enabledTemplates.includes($('#defaultTemplate').value)?$('#defaultTemplate').value:cfg.enabledTemplates[0];await persist();alert('Modelos atualizados.')};
  $('#refresh').onclick=async()=>{const b=$('#refresh');b.disabled=true;b.textContent=isPersonalMode()?'Atualizando...':'Sincronizando...';paintCloudDemo('sync');try{if(!isPersonalMode())await syncPendingQueue();await syncDown();if(!isPersonalMode())await refreshCloudStorage(true);renderDashboard();renderRecords();renderExport();renderSettings();if(!isPersonalMode())alert('Sincronização concluída. Registros e espaço da nuvem foram atualizados.')}catch{cloudConnected=false;paintCloudDemo();alert('Não foi possível sincronizar agora. Os registros pendentes continuam salvos no aparelho.')}};
  $('#checkUpdate').onclick=async()=>{const st=$('#appUpdateState');st.textContent='Verificando...';const found=await checkForUpdate(true);if(!found)st.textContent='Aplicativo atualizado'};
- $('#logout').onclick=()=>{sessionStorage.removeItem('gf_token');sessionStorage.removeItem('gf_role');sessionStorage.removeItem('gf_tenant');sessionStorage.removeItem('gf_user');sessionStorage.removeItem(IDENTITY);localStorage.removeItem('gf_token');localStorage.removeItem('gf_role');localStorage.removeItem('gf_user');localStorage.removeItem(IDENTITY);token='';role='user';currentUser='';identity='';referenceKmz=[];referenceKmzCache.clear();loginView()}
+ $('#logout').onclick=()=>{sessionStorage.removeItem('gf_token');sessionStorage.removeItem('gf_role');sessionStorage.removeItem('gf_tenant');sessionStorage.removeItem('gf_user');sessionStorage.removeItem(IDENTITY);localStorage.removeItem('gf_token');localStorage.removeItem('gf_role');localStorage.removeItem('gf_user');localStorage.removeItem(IDENTITY);token='';role='user';currentUser='';identity='';referenceKmz=[];referenceKmzCache.clear();photoBlobCache.clear();photoBlobInFlight.clear();try{recordPhotoObserver?.disconnect?.()}catch{}recordPhotoObserver=null;loginView()}
 }
 function makeKml(){return `<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>GeoFoto KMZ</name>${points.map(p=>`<Placemark><name>${xml(p.name)}</name><description>${xml(`${p.note||''} | ${fmt(p.time)} | ${p.city||''} | ${p.address||''} | Precisão ${Math.round(p.accuracy||0)}m`)}</description><Point><coordinates>${p.lng},${p.lat},0</coordinates></Point></Placemark>`).join('')}</Document></kml>`}
 function fileData(f){return new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f)})}
