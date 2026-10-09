@@ -76,8 +76,6 @@ export default {
     env.DB.prepare('INSERT INTO tenant_recovery (tenant_id,recovery_hash,created_at) VALUES (?,?,?)').bind(id,await sha256(recovery),now),
     env.DB.prepare('INSERT INTO registration_log (ip_hash,tenant_id,created_at) VALUES (?,?,?)').bind(ipHash,id,now)
    ])
-   const normalizedName=companySlug(name)
-   if(normalizedName.includes('multivale'))await env.DB.prepare('INSERT OR IGNORE INTO company_group_tenants (company_id,tenant_id,cluster_name,enabled) VALUES (?,?,?,1)').bind('multivale',id,name).run().catch(()=>{})
    return json({ok:true,accountCode:id,companyName:name,admin:{user:'admin',password:adminPass},collaborator:{user:'colaborador',password:userPass},recoveryCode:recovery},201)
   }
   if(url.pathname==='/api/recover-company'&&req.method==='POST'){
@@ -92,6 +90,40 @@ export default {
    ])
    return json({ok:true,accountCode:tenant,adminUser:'admin',adminPassword:pass})
   }
+
+  if(url.pathname==='/api/company-master/register'&&req.method==='POST'){
+   const b=await req.json().catch(()=>({})),name=String(b.name||'').trim().replace(/\s+/g,' '),user=String(b.user||'').trim(),pass=String(b.pass||''),requested=companySlug(b.company||name)
+   if(name.length<2||name.length>80)return json({error:'Informe o nome da organização (2 a 80 caracteres).'},400)
+   if(requested.length<3)return json({error:'Identificador da organização inválido.'},400)
+   if(user.length<3||pass.length<6)return json({error:'Usuário Master deve ter 3+ caracteres e senha 6+ caracteres.'},400)
+   const exists=await env.DB.prepare('SELECT id FROM company_groups WHERE id=?').bind(requested).first().catch(()=>null)
+   if(exists)return json({error:'Este identificador de organização já está em uso.'},409)
+   const ipHash=await sha256(req.headers.get('CF-Connecting-IP')||'unknown'),since=new Date(Date.now()-86400000).toISOString()
+   const lim=await env.DB.prepare('SELECT COUNT(*) n FROM company_master_registration_log WHERE ip_hash=? AND created_at>?').bind(ipHash,since).first().catch(()=>({n:0}))
+   if(Number(lim?.n||0)>=3)return json({error:'Limite de cadastros de organizações atingido nesta rede. Tente novamente amanhã.'},429)
+   const recovery='ORG-'+randomReadable(4)+'-'+randomReadable(4)+'-'+randomReadable(4),now=new Date().toISOString()
+   await env.DB.batch([
+    env.DB.prepare('INSERT INTO company_groups (id,name,enabled) VALUES (?,?,1)').bind(requested,name),
+    env.DB.prepare('INSERT INTO company_master_users (company_id,username,password_hash,enabled) VALUES (?,?,?,1)').bind(requested,user,await passwordHash(pass)),
+    env.DB.prepare('INSERT INTO company_master_recovery (company_id,recovery_hash,created_at) VALUES (?,?,?)').bind(requested,await sha256(recovery),now),
+    env.DB.prepare('INSERT INTO company_master_registration_log (ip_hash,company_id,created_at) VALUES (?,?,?)').bind(ipHash,requested,now)
+   ])
+   return json({ok:true,companyId:requested,companyName:name,masterUser:user,recoveryCode:recovery},201)
+  }
+  if(url.pathname==='/api/company-master/recover'&&req.method==='POST'){
+   const b=await req.json().catch(()=>({})),company=String(b.company||'').trim().toLowerCase(),code=String(b.recoveryCode||'').trim().toUpperCase()
+   if(company.length<3||code.length<8)return json({error:'Organização ou código de recuperação inválido.'},400)
+   const rec=await env.DB.prepare('SELECT recovery_hash FROM company_master_recovery WHERE company_id=?').bind(company).first().catch(()=>null)
+   if(!rec||rec.recovery_hash!==await sha256(code))return json({error:'Organização ou código de recuperação inválido.'},401)
+   const master=await env.DB.prepare('SELECT username FROM company_master_users WHERE company_id=? ORDER BY created_at LIMIT 1').bind(company).first()
+   if(!master)return json({error:'Acesso Master não encontrado.'},404)
+   const pass='MST-'+randomReadable(12)
+   await env.DB.batch([
+    env.DB.prepare('UPDATE company_master_users SET password_hash=?,enabled=1 WHERE company_id=? AND username=?').bind(await passwordHash(pass),company,master.username),
+    env.DB.prepare('DELETE FROM company_master_sessions WHERE company_id=?').bind(company)
+   ])
+   return json({ok:true,companyId:company,masterUser:master.username,masterPassword:pass})
+  }
   if(url.pathname==='/api/master/login'&&req.method==='POST'){
    const b=await req.json().catch(()=>({})),user=String(b.user||'').trim()
    const m=await env.DB.prepare('SELECT password_hash,enabled FROM master_users WHERE username=?').bind(user).first().catch(()=>null)
@@ -101,7 +133,7 @@ export default {
    return json({token,role:'superadmin',expiresAt:exp})
   }
   if(url.pathname==='/api/company-master/login'&&req.method==='POST'){
-   const b=await req.json().catch(()=>({})),company=String(b.company||'multivale').trim().toLowerCase(),user=String(b.user||'').trim()
+   const b=await req.json().catch(()=>({})),company=String(b.company||'').trim().toLowerCase(),user=String(b.user||'').trim()
    const m=await env.DB.prepare('SELECT u.password_hash,u.enabled,g.name,g.enabled company_enabled FROM company_master_users u JOIN company_groups g ON g.id=u.company_id WHERE u.company_id=? AND u.username=?').bind(company,user).first().catch(()=>null)
    if(!m||!m.enabled||!m.company_enabled||!(await verifyPassword(b.pass,m.password_hash)))return json({error:'Usuário ou senha do Master da empresa inválidos'},401)
    const token='cm_'+crypto.randomUUID()+crypto.randomUUID(),exp=new Date(Date.now()+12*60*60*1000).toISOString()
@@ -398,6 +430,36 @@ async function handleCompanyMasterRoutes(req,env,s,url){
    FROM points p JOIN company_group_tenants g ON g.tenant_id=p.tenant_id JOIN tenants t ON t.id=p.tenant_id
    WHERE g.company_id=? AND g.enabled=1 ORDER BY p.time DESC LIMIT 12`).bind(companyId).all().catch(()=>({results:[]}))
   return json({company:{id:company.id,name:company.name},totals,clusters,recent:recent.results||[]})
+ }
+
+ if(url.pathname==='/api/company-master/clusters/create'&&req.method==='POST'){
+  const b=await req.json().catch(()=>({})),name=String(b.name||'').trim().replace(/\s+/g,' ')
+  if(name.length<2||name.length>80)return json({error:'Informe o nome da conta/cluster (2 a 80 caracteres).'},400)
+  let tenantId=''
+  for(let i=0;i<8;i++){const candidate=companySlug(name)+'-'+randomReadable(4).toLowerCase(),exists=await env.DB.prepare('SELECT id FROM tenants WHERE id=?').bind(candidate).first();if(!exists){tenantId=candidate;break}}
+  if(!tenantId)return json({error:'Não foi possível gerar o código da conta.'},500)
+  const adminPass='ADM-'+randomReadable(10),userPass='COL-'+randomReadable(10),recovery='GFKM-'+randomReadable(4)+'-'+randomReadable(4)+'-'+randomReadable(4),now=new Date().toISOString()
+  await env.DB.batch([
+   env.DB.prepare('INSERT INTO tenants (id,name,enabled) VALUES (?,?,1)').bind(tenantId,name),
+   env.DB.prepare('INSERT INTO tenant_users (tenant_id,username,password_hash,role,enabled) VALUES (?,?,?,?,1)').bind(tenantId,'admin',await passwordHash(adminPass),'admin'),
+   env.DB.prepare('INSERT INTO tenant_users (tenant_id,username,password_hash,role,enabled) VALUES (?,?,?,?,1)').bind(tenantId,'colaborador',await passwordHash(userPass),'user'),
+   env.DB.prepare('INSERT INTO tenant_recovery (tenant_id,recovery_hash,created_at) VALUES (?,?,?)').bind(tenantId,await sha256(recovery),now),
+   env.DB.prepare('INSERT INTO company_group_tenants (company_id,tenant_id,cluster_name,enabled) VALUES (?,?,?,1)').bind(companyId,tenantId,name)
+  ])
+  return json({ok:true,accountCode:tenantId,clusterName:name,admin:{user:'admin',password:adminPass},collaborator:{user:'colaborador',password:userPass},recoveryCode:recovery},201)
+ }
+ if(url.pathname==='/api/company-master/clusters/link'&&req.method==='POST'){
+  const b=await req.json().catch(()=>({})),tenantId=cleanTenant(b.account),adminUser=String(b.user||'').trim(),pass=String(b.pass||''),clusterName=String(b.clusterName||'').trim()
+  if(!tenantId||tenantId==='principal')return json({error:'Esta conta não pode ser vinculada por autoatendimento.'},400)
+  const t=await env.DB.prepare('SELECT id,name,enabled FROM tenants WHERE id=?').bind(tenantId).first()
+  if(!t||!t.enabled)return json({error:'Conta não encontrada ou desativada.'},404)
+  const u=await env.DB.prepare('SELECT password_hash,role,enabled FROM tenant_users WHERE tenant_id=? AND username=?').bind(tenantId,adminUser).first()
+  if(!u||!u.enabled||u.role!=='admin'||!(await verifyPassword(pass,u.password_hash)))return json({error:'Informe um administrador válido da conta que será vinculada.'},401)
+  const linked=await env.DB.prepare('SELECT company_id FROM company_group_tenants WHERE tenant_id=? AND enabled=1 LIMIT 1').bind(tenantId).first()
+  if(linked&&linked.company_id!==companyId)return json({error:'Esta conta já está vinculada a outra organização.'},409)
+  const display=(clusterName||t.name).slice(0,100)
+  await env.DB.prepare('INSERT INTO company_group_tenants (company_id,tenant_id,cluster_name,enabled) VALUES (?,?,?,1) ON CONFLICT(company_id,tenant_id) DO UPDATE SET cluster_name=excluded.cluster_name,enabled=1').bind(companyId,tenantId,display).run()
+  return json({ok:true,tenantId,clusterName:display})
  }
  let m=url.pathname.match(/^\/api\/company-master\/clusters\/([^/]+)\/users$/)
  if(m&&req.method==='GET'){

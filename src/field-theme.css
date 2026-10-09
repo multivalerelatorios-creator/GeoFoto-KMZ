@@ -400,3 +400,14 @@ button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}button{cu
 .master-return-button{order:10;border:1px solid rgba(96,165,250,.26);border-radius:10px;padding:8px 10px;background:rgba(37,99,235,.12);color:#bdddff;font-size:10px;font-weight:800;cursor:pointer}
 @media(max-width:900px){.master-shell{padding:10px}.master-top{align-items:flex-start}.master-layout{grid-template-columns:1fr}.cluster-row,.owner-account-row{grid-template-columns:1fr}.master-metrics{grid-template-columns:1fr 1fr}.cluster-actions{justify-content:flex-start}.master-user-row{grid-template-columns:1fr}.master-user-actions{justify-content:flex-start}.master-hero{align-items:flex-start;flex-direction:column}.master-status-pill{align-self:flex-start}}
 @media(max-width:520px){.master-top{padding:11px;flex-direction:column}.master-brand h1{font-size:19px}.master-top-actions{width:100%}.master-top-actions .btn{flex:1}.master-hero{padding:17px}.master-hero h2{font-size:24px}.master-metrics>div{padding:12px}.master-metrics b{font-size:22px}.master-card{padding:11px}.master-users-gate{padding:7px}.master-users-card{padding:14px 10px}.master-users-tools{align-items:flex-start;flex-direction:column}.master-return-button{width:100%;margin-top:4px}}
+
+
+/* ===== AUTOATENDIMENTO MULTIEMPRESA 2026-10-09 ===== */
+.master-cluster-gate{position:fixed;inset:0;z-index:9050;display:grid;place-items:center;padding:18px;background:rgba(1,7,13,.88);backdrop-filter:blur(12px)}
+.master-cluster-card{width:min(980px,96vw);max-height:92vh;overflow:auto;padding:18px;border:1px solid #31536d;border-radius:18px;background:#081b2b;color:#fff;box-shadow:0 28px 90px #0009}
+.cluster-manager-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+.cluster-manager-grid section{padding:15px;border:1px solid #25455d;border-radius:14px;background:#0b263c}
+.cluster-manager-grid h4{margin:0 0 6px;font-size:16px}
+.cluster-manager-grid form{display:grid;gap:10px;margin-top:12px}
+#companyMasterRegister .signup-success,#companyMasterRecover .signup-success{margin-top:14px}
+@media(max-width:760px){.cluster-manager-grid{grid-template-columns:1fr}.master-cluster-gate{padding:7px}.master-cluster-card{padding:14px 10px}}

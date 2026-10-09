@@ -6,7 +6,7 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', COMPANY_MASTER_TOKEN='gf_company_master_token', OWNER_MASTER_TOKEN='gf_owner_master_token', COMPANY_MASTER_ORG='gf_company_master_org', MASTER_VIEW='gf_master_view', APP_VERSION='1.7.1'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', COMPANY_MASTER_TOKEN='gf_company_master_token', OWNER_MASTER_TOKEN='gf_owner_master_token', COMPANY_MASTER_ORG='gf_company_master_org', MASTER_VIEW='gf_master_view', APP_VERSION='1.7.2'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,mapBaseLayer=null,mapLabelLayer=null,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),photoBlobCache=new Map(),photoBlobInFlight=new Map(),recordPhotoObserver=null,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',recordSearchFilter='',recordSearchTimer=null,torchOn=false,torchSupported=false,cameraZoom=1,cameraZoomMin=1,cameraZoomMax=5,cameraHardwareZoom=false,pinchStartDistance=0,pinchStartZoom=1,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
@@ -231,8 +231,38 @@ function loginView(){
     <label class="field">Usuário Master<input id="companyMasterUser" autocomplete="username" required></label>
     <label class="field">Senha<div class="password-input-wrap"><input id="companyMasterPass" type="password" autocomplete="current-password" required><button class="password-toggle" id="toggleCompanyMasterPass" type="button">👁</button></div></label>
     <button class="btn primary full" type="submit">Entrar na Gestão Multiempresa</button>
+    <button class="text-action" id="registerOrganization" type="button">＋ Cadastrar nova organização</button>
+    <button class="text-action" id="recoverOrganization" type="button">Recuperar acesso Multiempresa</button>
     <p id="companyMasterMsg" class="muted"></p>
    </form>
+  </div>
+  <div id="companyMasterRegister" class="access-pane hidden">
+   <button class="link-back" id="backCompanyMasterRegister" type="button">← Voltar ao acesso Multiempresa</button>
+   <span class="master-kicker">AUTOATENDIMENTO</span>
+   <h2>Cadastrar nova organização</h2>
+   <p class="muted">Crie o painel Multiempresa sem suporte. Depois você poderá criar ou vincular quantas contas/unidades precisar.</p>
+   <form id="companyMasterRegisterForm">
+    <label class="field">Nome da organização<input id="newOrgName" maxlength="80" placeholder="Ex.: Sadia" required></label>
+    <label class="field">Identificador da organização<input id="newOrgId" maxlength="40" placeholder="Ex.: sadia" autocapitalize="none" spellcheck="false" required></label>
+    <label class="field">Usuário Master<input id="newOrgUser" maxlength="60" placeholder="Ex.: master.sadia" autocomplete="username" required></label>
+    <label class="field">Senha Master<div class="password-input-wrap"><input id="newOrgPass" type="password" minlength="6" autocomplete="new-password" required><button class="password-toggle" id="toggleNewOrgPass" type="button">👁</button></div></label>
+    <button class="btn primary full" type="submit">Criar organização</button>
+    <p id="companyMasterRegisterMsg" class="muted"></p>
+   </form>
+   <div id="companyMasterRegisterResult" class="hidden"></div>
+  </div>
+  <div id="companyMasterRecover" class="access-pane hidden">
+   <button class="link-back" id="backCompanyMasterRecover" type="button">← Voltar ao acesso Multiempresa</button>
+   <span class="master-kicker">RECUPERAÇÃO</span>
+   <h2>Recuperar acesso Multiempresa</h2>
+   <p class="muted">Use o código de recuperação entregue quando a organização foi criada.</p>
+   <form id="companyMasterRecoverForm">
+    <label class="field">Empresa / Organização<input id="recoverOrgId" required></label>
+    <label class="field">Código de recuperação<input id="recoverOrgCode" placeholder="ORG-XXXX-XXXX-XXXX" required></label>
+    <button class="btn primary full" type="submit">Gerar nova senha Master</button>
+    <p id="companyMasterRecoverMsg" class="muted"></p>
+   </form>
+   <div id="companyMasterRecoverResult" class="hidden"></div>
   </div>
   <div id="ownerMasterLogin" class="access-pane hidden">
    <button class="link-back" data-back type="button">← Voltar</button>
@@ -248,13 +278,21 @@ function loginView(){
   </div>
  </div>
  </main>`;
- const panes=['#accessHome','#companyLogin','#companyRegister','#recoverPane','#companyMasterLogin','#ownerMasterLogin'];
+ const panes=['#accessHome','#companyLogin','#companyRegister','#recoverPane','#companyMasterLogin','#companyMasterRegister','#companyMasterRecover','#ownerMasterLogin'];
  const showPane=id=>{for(const p of panes)$(p)?.classList.add('hidden');$(id)?.classList.remove('hidden')};
  document.querySelectorAll('[data-back]').forEach(b=>b.onclick=()=>showPane('#accessHome'));
  $('#existingCompany').onclick=()=>showPane('#companyLogin');
  $('#newCompany').onclick=()=>showPane('#companyRegister');
  $('#companyMasterAccess').onclick=()=>showPane('#companyMasterLogin');
  $('#ownerMasterAccess').onclick=()=>showPane('#ownerMasterLogin');
+ $('#registerOrganization').onclick=()=>showPane('#companyMasterRegister');
+ $('#recoverOrganization').onclick=()=>{$('#recoverOrgId').value=$('#companyMasterOrg').value.trim();showPane('#companyMasterRecover')};
+ $('#backCompanyMasterRegister').onclick=()=>showPane('#companyMasterLogin');
+ $('#backCompanyMasterRecover').onclick=()=>showPane('#companyMasterLogin');
+ const orgSlug=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40);
+ $('#newOrgName').addEventListener('input',()=>{const id=orgSlug($('#newOrgName').value);if(!$('#newOrgId').dataset.touched)$('#newOrgId').value=id;if(!$('#newOrgUser').dataset.touched)$('#newOrgUser').value=id?'master.'+id:''});
+ $('#newOrgId').addEventListener('input',()=>{$('#newOrgId').dataset.touched='1';$('#newOrgId').value=orgSlug($('#newOrgId').value)});
+ $('#newOrgUser').addEventListener('input',()=>{$('#newOrgUser').dataset.touched='1'});
  $('#personalUse').onclick=async()=>{
   token='';role='personal';tenant='personal';identity=localStorage.getItem(IDENTITY)||'';cfg=loadCfg();mergeLocalBrand();
   sessionStorage.removeItem('gf_token');sessionStorage.setItem('gf_role','personal');sessionStorage.setItem('gf_tenant','personal');
@@ -268,10 +306,26 @@ function loginView(){
   catch(x){$('#loginMsg').textContent=x.message}
  };
  const toggleSecret=(button,input)=>{if(!button||!input)return;button.onclick=()=>{const show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'🙈':'👁'}};
- toggleSecret($('#toggleCompanyMasterPass'),$('#companyMasterPass'));toggleSecret($('#toggleOwnerMasterPass'),$('#ownerMasterPass'));
+ toggleSecret($('#toggleCompanyMasterPass'),$('#companyMasterPass'));toggleSecret($('#toggleNewOrgPass'),$('#newOrgPass'));toggleSecret($('#toggleOwnerMasterPass'),$('#ownerMasterPass'));
  $('#companyMasterForm').onsubmit=async e=>{
   e.preventDefault();const msg=$('#companyMasterMsg'),btn=e.submitter;msg.textContent='';btn.disabled=true;btn.textContent='Entrando...';
   try{const org=$('#companyMasterOrg').value.trim().toLowerCase();const d=await api('/company-master/login',{method:'POST',body:JSON.stringify({company:org,user:$('#companyMasterUser').value.trim(),pass:$('#companyMasterPass').value})});token=d.token;role='companymaster';currentUser=d.username||'';localStorage.setItem(COMPANY_MASTER_ORG,org);sessionStorage.setItem(COMPANY_MASTER_TOKEN,token);sessionStorage.setItem(MASTER_VIEW,'company');sessionStorage.removeItem('gf_token');localStorage.removeItem('gf_token');await companyMasterView()}catch(x){msg.textContent=x.message}finally{btn.disabled=false;btn.textContent='Entrar na Gestão Multiempresa'}
+ };
+ $('#companyMasterRegisterForm').onsubmit=async e=>{
+  e.preventDefault();const msg=$('#companyMasterRegisterMsg'),btn=e.submitter;msg.textContent='';btn.disabled=true;btn.textContent='Criando organização...';
+  try{
+   const payload={name:$('#newOrgName').value.trim(),company:$('#newOrgId').value.trim(),user:$('#newOrgUser').value.trim(),pass:$('#newOrgPass').value};
+   const d=await api('/company-master/register',{method:'POST',body:JSON.stringify(payload)});
+   $('#companyMasterRegisterForm').classList.add('hidden');const box=$('#companyMasterRegisterResult');box.classList.remove('hidden');
+   box.innerHTML='<div class="signup-success"><span class="success-dot">✓</span><h3>Organização criada</h3><p>Guarde o código de recuperação. Ele permite recuperar o acesso sem suporte.</p><div class="credential-row"><span>Empresa / Organização</span><b>'+esc(d.companyId)+'</b></div><div class="credential-row"><span>Usuário Master</span><b>'+esc(d.masterUser)+'</b></div><div class="credential-row recovery"><span>Código de recuperação</span><code>'+esc(d.recoveryCode)+'</code></div><button class="btn secondary full" id="copyOrgCreated" type="button">Copiar dados</button><button class="btn primary full" id="enterOrgCreated" type="button">Entrar na organização</button></div>';
+   $('#copyOrgCreated').onclick=async()=>{await copyText('GeoFoto KMZ - Gestão Multiempresa\nOrganização: '+d.companyId+'\nUsuário Master: '+d.masterUser+'\nCódigo de recuperação: '+d.recoveryCode);$('#copyOrgCreated').textContent='✓ Dados copiados'};
+   $('#enterOrgCreated').onclick=async()=>{localStorage.setItem(COMPANY_MASTER_ORG,d.companyId);$('#companyMasterOrg').value=d.companyId;$('#companyMasterUser').value=d.masterUser;$('#companyMasterPass').value=payload.pass;showPane('#companyMasterLogin')}
+  }catch(x){msg.textContent=x.message}finally{btn.disabled=false;btn.textContent='Criar organização'}
+ };
+ $('#companyMasterRecoverForm').onsubmit=async e=>{
+  e.preventDefault();const msg=$('#companyMasterRecoverMsg'),btn=e.submitter;msg.textContent='';btn.disabled=true;btn.textContent='Recuperando...';
+  try{const d=await api('/company-master/recover',{method:'POST',body:JSON.stringify({company:$('#recoverOrgId').value.trim().toLowerCase(),recoveryCode:$('#recoverOrgCode').value.trim()})});const box=$('#companyMasterRecoverResult');box.classList.remove('hidden');box.innerHTML='<div class="signup-success compact"><h3>Acesso recuperado</h3><div class="credential-row"><span>Usuário Master</span><b>'+esc(d.masterUser)+'</b></div><div class="credential-row"><span>Nova senha</span><code>'+esc(d.masterPassword)+'</code></div><button class="btn secondary full" id="copyOrgRecovery" type="button">Copiar nova senha</button></div>';$('#copyOrgRecovery').onclick=()=>copyText(d.masterPassword)}
+  catch(x){msg.textContent=x.message}finally{btn.disabled=false;btn.textContent='Gerar nova senha Master'}
  };
  $('#ownerMasterForm').onsubmit=async e=>{
   e.preventDefault();const msg=$('#ownerMasterMsg'),btn=e.submitter;msg.textContent='';btn.disabled=true;btn.textContent='Entrando...';
@@ -1260,8 +1314,8 @@ function masterLogout(clearKey){
 }
 async function companyMasterView(){
  stopCamera();token=sessionStorage.getItem(COMPANY_MASTER_TOKEN)||token;if(!token)return loginView();role='companymaster';sessionStorage.setItem(MASTER_VIEW,'company')
- $('#app').innerHTML='<main class="master-shell"><header class="master-top"><div class="master-brand"><img src="/icon-192.png" alt=""><div><span>GEOFOTO KMZ</span><h1>Gestão Multiempresa</h1><small>Painel único da organização</small></div></div><div class="master-top-actions"><button class="btn secondary" id="cmRefresh">Atualizar</button><button class="btn secondary" id="cmLogout">Sair</button></div></header><section id="companyMasterBody" class="master-body"><div class="master-loading">Carregando contas e clusters da organização…</div></section></main>'
- $('#cmLogout').onclick=()=>masterLogout(COMPANY_MASTER_TOKEN);$('#cmRefresh').onclick=refreshCompanyMaster
+ $('#app').innerHTML='<main class="master-shell"><header class="master-top"><div class="master-brand"><img src="/icon-192.png" alt=""><div><span>GEOFOTO KMZ</span><h1>Gestão Multiempresa</h1><small>Painel único da organização</small></div></div><div class="master-top-actions"><button class="btn primary" id="cmAddCluster">＋ Adicionar conta / cluster</button><button class="btn secondary" id="cmRefresh">Atualizar</button><button class="btn secondary" id="cmLogout">Sair</button></div></header><section id="companyMasterBody" class="master-body"><div class="master-loading">Carregando contas e clusters da organização…</div></section></main>'
+ $('#cmLogout').onclick=()=>masterLogout(COMPANY_MASTER_TOKEN);$('#cmRefresh').onclick=refreshCompanyMaster;$('#cmAddCluster').onclick=openCompanyClusterManager
  await refreshCompanyMaster()
 }
 async function refreshCompanyMaster(){
@@ -1283,6 +1337,20 @@ async function enterCompanyMasterCluster(id){
 async function openCompanyMasterUsers(id,name){
  token=sessionStorage.getItem(COMPANY_MASTER_TOKEN)||token
  try{const d=await api('/company-master/clusters/'+encodeURIComponent(id)+'/users',{timeout:12000});openMasterUsersModal({mode:'company',tenantId:id,title:name||d.cluster?.name||id,users:d.users||[]})}catch(e){alert(e.message)}
+}
+async function openCompanyClusterManager(){
+ document.querySelector('.master-cluster-gate')?.remove();
+ const gate=document.createElement('div');gate.className='master-cluster-gate';
+ gate.innerHTML='<div class="master-cluster-card"><div class="master-users-head"><div><span>AUTOATENDIMENTO</span><h3>Adicionar conta / cluster</h3><small>Crie uma nova unidade ou vincule uma conta já existente.</small></div><button id="clusterManagerClose" type="button">×</button></div><div class="cluster-manager-grid"><section><h4>Criar nova conta / cluster</h4><p class="muted">O GeoFoto cria automaticamente o código da conta, administrador, colaborador e recuperação.</p><form id="createClusterForm"><label class="field">Nome da conta / unidade<input id="createClusterName" placeholder="Ex.: Sadia - Curitiba" required></label><button class="btn primary full" type="submit">Criar nova conta</button><p id="createClusterMsg" class="muted"></p></form><div id="createClusterResult" class="hidden"></div></section><section><h4>Vincular conta existente</h4><p class="muted">Para segurança, confirme um usuário administrador da conta que será vinculada.</p><form id="linkClusterForm"><label class="field">Código da conta<input id="linkClusterAccount" required></label><label class="field">Nome no painel (opcional)<input id="linkClusterName" placeholder="Ex.: Unidade Toledo"></label><label class="field">Usuário administrador<input id="linkClusterUser" required></label><label class="field">Senha do administrador<input id="linkClusterPass" type="password" required></label><button class="btn secondary full" type="submit">Vincular conta existente</button><p id="linkClusterMsg" class="muted"></p></form></section></div><div class="master-preserve-note"><b>Dados preservados</b><span>Vincular uma conta não move nem altera fotos, pontos, KMZ ou histórico. Apenas adiciona a conta à visão Multiempresa.</span></div></div>';
+ document.body.appendChild(gate);gate.querySelector('#clusterManagerClose').onclick=()=>gate.remove();gate.onclick=e=>{if(e.target===gate)gate.remove()};
+ gate.querySelector('#createClusterForm').onsubmit=async e=>{
+  e.preventDefault();const msg=gate.querySelector('#createClusterMsg'),btn=e.submitter;msg.textContent='';btn.disabled=true;btn.textContent='Criando...';
+  try{token=sessionStorage.getItem(COMPANY_MASTER_TOKEN)||token;const d=await api('/company-master/clusters/create',{method:'POST',body:JSON.stringify({name:gate.querySelector('#createClusterName').value.trim()})});const box=gate.querySelector('#createClusterResult');box.classList.remove('hidden');box.innerHTML='<div class="signup-success compact"><h3>Conta criada</h3><div class="credential-row"><span>Código da conta</span><b>'+esc(d.accountCode)+'</b></div><div class="credential-row"><span>Administrador</span><b>'+esc(d.admin.user)+'</b><code>'+esc(d.admin.password)+'</code></div><div class="credential-row"><span>Colaborador</span><b>'+esc(d.collaborator.user)+'</b><code>'+esc(d.collaborator.password)+'</code></div><div class="credential-row recovery"><span>Recuperação</span><code>'+esc(d.recoveryCode)+'</code></div><button class="btn secondary full" id="copyClusterCreated" type="button">Copiar dados da conta</button></div>';box.querySelector('#copyClusterCreated').onclick=()=>copyText('GeoFoto KMZ - '+d.clusterName+'\nCódigo: '+d.accountCode+'\nAdministrador: '+d.admin.user+'\nSenha admin: '+d.admin.password+'\nColaborador: '+d.collaborator.user+'\nSenha colaborador: '+d.collaborator.password+'\nRecuperação: '+d.recoveryCode);await refreshCompanyMaster()}catch(x){msg.textContent=x.message}finally{btn.disabled=false;btn.textContent='Criar nova conta'}
+ };
+ gate.querySelector('#linkClusterForm').onsubmit=async e=>{
+  e.preventDefault();const msg=gate.querySelector('#linkClusterMsg'),btn=e.submitter;msg.textContent='';btn.disabled=true;btn.textContent='Validando...';
+  try{token=sessionStorage.getItem(COMPANY_MASTER_TOKEN)||token;await api('/company-master/clusters/link',{method:'POST',body:JSON.stringify({account:gate.querySelector('#linkClusterAccount').value.trim(),clusterName:gate.querySelector('#linkClusterName').value.trim(),user:gate.querySelector('#linkClusterUser').value.trim(),pass:gate.querySelector('#linkClusterPass').value})});msg.textContent='✓ Conta vinculada com sucesso.';gate.querySelector('#linkClusterForm').reset();await refreshCompanyMaster()}catch(x){msg.textContent=x.message}finally{btn.disabled=false;btn.textContent='Vincular conta existente'}
+ };
 }
 async function ownerMasterView(){
  stopCamera();token=sessionStorage.getItem(OWNER_MASTER_TOKEN)||token;if(!token)return loginView();role='superadmin';sessionStorage.setItem(MASTER_VIEW,'owner')
