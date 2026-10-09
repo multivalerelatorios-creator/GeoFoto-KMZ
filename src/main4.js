@@ -6,7 +6,7 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', COMPANY_MASTER_TOKEN='gf_company_master_token', OWNER_MASTER_TOKEN='gf_owner_master_token', MASTER_VIEW='gf_master_view', APP_VERSION='1.7.0'
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', COMPANY_MASTER_TOKEN='gf_company_master_token', OWNER_MASTER_TOKEN='gf_owner_master_token', COMPANY_MASTER_ORG='gf_company_master_org', MASTER_VIEW='gf_master_view', APP_VERSION='1.7.1'
 let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,mapBaseLayer=null,mapLabelLayer=null,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),photoBlobCache=new Map(),photoBlobInFlight=new Map(),recordPhotoObserver=null,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',recordSearchFilter='',recordSearchTimer=null,torchOn=false,torchSupported=false,cameraZoom=1,cameraZoomMin=1,cameraZoomMax=5,cameraHardwareZoom=false,pinchStartDistance=0,pinchStartZoom=1,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
@@ -25,7 +25,7 @@ minimal:{name:'Minimalista',description:'Identificação, data, coordenadas e mi
 function templateRows(t){if(t.minimal)return[`Data/Hora: ${fmt(new Date())}`,`GPS: ${geo?.latitude?.toFixed(6)||'-'}, ${geo?.longitude?.toFixed(6)||'-'}`];const rows=[`Data/Hora: ${fmt(new Date())}`,`Latitude: ${geo?.latitude?.toFixed(6)||'-'}  Longitude: ${geo?.longitude?.toFixed(6)||'-'}`,`Precisão: ${Math.round(geo?.accuracy||0)} m`,`Cidade: ${geo?.city||'Não identificada'}`,`Endereço: ${(geo?.address||'Não identificado').slice(0,80)}`];return rows}
 L.Icon.Default.mergeOptions({iconRetinaUrl:mapMarkerRetina,iconUrl:mapMarkerIcon,shadowUrl:mapMarkerShadow})
 function storeKey(base){return base+':'+(tenant||'principal')}
-function accountLabel(){if(tenant==='personal')return 'USO PESSOAL';return (tenant||'principal')==='principal'?'MULTIVALE':String(tenant).toLocaleUpperCase('pt-BR')}
+function accountLabel(){if(tenant==='personal')return 'USO PESSOAL';return (tenant||'principal')==='principal'?'CONTA PRINCIPAL':String(tenant).toLocaleUpperCase('pt-BR')}
 function isPersonalMode(){return role==='personal'||tenant==='personal'}
 function cloudSyncKey(){return 'gf_cloud_sync:'+String(tenant||'principal')}
 function cloudCountKey(){return 'gf_cloud_count:'+String(tenant||'principal')}
@@ -182,8 +182,8 @@ function loginView(){
    <button class="access-choice" id="newCompany" type="button"><b>＋ Cadastrar minha empresa</b><span>Crie a conta e gere acessos de administrador e colaborador.</span></button>
    <button class="access-choice personal" id="personalUse" type="button"><b>👤 Usar para uso próprio</b><span>Sem cadastro e sem vínculo com empresa. Os dados ficam neste aparelho.</span></button>
    <div class="master-access-divider"><span>GESTÃO</span></div>
-   <button class="access-choice master-company" id="companyMasterAccess" type="button"><b>◆ Master MULTIVALE</b><span>Painel único com todos os clusters e acessos vinculados à Multivale.</span></button>
-   <button class="text-action owner-master-link" id="ownerMasterAccess" type="button">🔒 Master do aplicativo</button>
+   <button class="access-choice master-company" id="companyMasterAccess" type="button"><b>◆ Gestão Multiempresa</b><span>Painel único para empresas com múltiplas contas, unidades ou clusters.</span></button>
+   <button class="text-action owner-master-link" id="ownerMasterAccess" type="button">🔒 Administração da Plataforma</button>
   </div>
   <div id="companyLogin" class="access-pane hidden">
    <button class="link-back" data-back type="button">← Voltar</button>
@@ -223,25 +223,26 @@ function loginView(){
   </div>
   <div id="companyMasterLogin" class="access-pane hidden">
    <button class="link-back" data-back type="button">← Voltar</button>
-   <span class="master-kicker">MASTER DA EMPRESA</span>
-   <h2>Master MULTIVALE</h2>
-   <p class="muted">Um único acesso para visualizar e administrar todos os clusters vinculados à Multivale.</p>
+   <span class="master-kicker">GESTÃO MULTIEMPRESA</span>
+   <h2>Acesso da organização</h2>
+   <p class="muted">Entre com o identificador da empresa ou organização e o acesso Master correspondente.</p>
    <form id="companyMasterForm">
+    <label class="field">Empresa / Organização<input id="companyMasterOrg" value="${attr(localStorage.getItem(COMPANY_MASTER_ORG)||'')}" autocomplete="organization" autocapitalize="none" spellcheck="false" placeholder="Ex.: empresa" required></label>
     <label class="field">Usuário Master<input id="companyMasterUser" autocomplete="username" required></label>
     <label class="field">Senha<div class="password-input-wrap"><input id="companyMasterPass" type="password" autocomplete="current-password" required><button class="password-toggle" id="toggleCompanyMasterPass" type="button">👁</button></div></label>
-    <button class="btn primary full" type="submit">Entrar no painel MULTIVALE</button>
+    <button class="btn primary full" type="submit">Entrar na Gestão Multiempresa</button>
     <p id="companyMasterMsg" class="muted"></p>
    </form>
   </div>
   <div id="ownerMasterLogin" class="access-pane hidden">
    <button class="link-back" data-back type="button">← Voltar</button>
-   <span class="master-kicker owner">PROPRIETÁRIO DO APLICATIVO</span>
-   <h2>Master do GeoFoto KMZ</h2>
+   <span class="master-kicker owner">ADMINISTRAÇÃO DA PLATAFORMA</span>
+   <h2>Acesso do proprietário</h2>
    <p class="muted">Acesso particular do proprietário para visualizar todas as empresas e contas cadastradas no aplicativo.</p>
    <form id="ownerMasterForm">
     <label class="field">Usuário<input id="ownerMasterUser" autocomplete="username" required></label>
     <label class="field">Senha<div class="password-input-wrap"><input id="ownerMasterPass" type="password" autocomplete="current-password" required><button class="password-toggle" id="toggleOwnerMasterPass" type="button">👁</button></div></label>
-    <button class="btn primary full" type="submit">Entrar como proprietário</button>
+    <button class="btn primary full" type="submit">Entrar na Administração da Plataforma</button>
     <p id="ownerMasterMsg" class="muted"></p>
    </form>
   </div>
@@ -270,11 +271,11 @@ function loginView(){
  toggleSecret($('#toggleCompanyMasterPass'),$('#companyMasterPass'));toggleSecret($('#toggleOwnerMasterPass'),$('#ownerMasterPass'));
  $('#companyMasterForm').onsubmit=async e=>{
   e.preventDefault();const msg=$('#companyMasterMsg'),btn=e.submitter;msg.textContent='';btn.disabled=true;btn.textContent='Entrando...';
-  try{const d=await api('/company-master/login',{method:'POST',body:JSON.stringify({company:'multivale',user:$('#companyMasterUser').value.trim(),pass:$('#companyMasterPass').value})});token=d.token;role='companymaster';currentUser=d.username||'';sessionStorage.setItem(COMPANY_MASTER_TOKEN,token);sessionStorage.setItem(MASTER_VIEW,'company');sessionStorage.removeItem('gf_token');localStorage.removeItem('gf_token');await companyMasterView()}catch(x){msg.textContent=x.message}finally{btn.disabled=false;btn.textContent='Entrar no painel MULTIVALE'}
+  try{const org=$('#companyMasterOrg').value.trim().toLowerCase();const d=await api('/company-master/login',{method:'POST',body:JSON.stringify({company:org,user:$('#companyMasterUser').value.trim(),pass:$('#companyMasterPass').value})});token=d.token;role='companymaster';currentUser=d.username||'';localStorage.setItem(COMPANY_MASTER_ORG,org);sessionStorage.setItem(COMPANY_MASTER_TOKEN,token);sessionStorage.setItem(MASTER_VIEW,'company');sessionStorage.removeItem('gf_token');localStorage.removeItem('gf_token');await companyMasterView()}catch(x){msg.textContent=x.message}finally{btn.disabled=false;btn.textContent='Entrar na Gestão Multiempresa'}
  };
  $('#ownerMasterForm').onsubmit=async e=>{
   e.preventDefault();const msg=$('#ownerMasterMsg'),btn=e.submitter;msg.textContent='';btn.disabled=true;btn.textContent='Entrando...';
-  try{const d=await api('/master/login',{method:'POST',body:JSON.stringify({user:$('#ownerMasterUser').value.trim(),pass:$('#ownerMasterPass').value})});token=d.token;role='superadmin';currentUser=$('#ownerMasterUser').value.trim();sessionStorage.setItem(OWNER_MASTER_TOKEN,token);sessionStorage.setItem(MASTER_VIEW,'owner');sessionStorage.removeItem('gf_token');localStorage.removeItem('gf_token');await ownerMasterView()}catch(x){msg.textContent=x.message}finally{btn.disabled=false;btn.textContent='Entrar como proprietário'}
+  try{const d=await api('/master/login',{method:'POST',body:JSON.stringify({user:$('#ownerMasterUser').value.trim(),pass:$('#ownerMasterPass').value})});token=d.token;role='superadmin';currentUser=$('#ownerMasterUser').value.trim();sessionStorage.setItem(OWNER_MASTER_TOKEN,token);sessionStorage.setItem(MASTER_VIEW,'owner');sessionStorage.removeItem('gf_token');localStorage.removeItem('gf_token');await ownerMasterView()}catch(x){msg.textContent=x.message}finally{btn.disabled=false;btn.textContent='Entrar na Administração da Plataforma'}
  };
  $('#recoverAccess').onclick=()=>{$('#recoverAccount').value=$('#account').value.trim();showPane('#recoverPane')};
  $('#backLogin').onclick=()=>showPane('#companyLogin');
@@ -1259,7 +1260,7 @@ function masterLogout(clearKey){
 }
 async function companyMasterView(){
  stopCamera();token=sessionStorage.getItem(COMPANY_MASTER_TOKEN)||token;if(!token)return loginView();role='companymaster';sessionStorage.setItem(MASTER_VIEW,'company')
- $('#app').innerHTML='<main class="master-shell"><header class="master-top"><div class="master-brand"><img src="/icon-192.png" alt=""><div><span>GEOFOTO KMZ</span><h1>Master MULTIVALE</h1><small>Painel único da empresa</small></div></div><div class="master-top-actions"><button class="btn secondary" id="cmRefresh">Atualizar</button><button class="btn secondary" id="cmLogout">Sair</button></div></header><section id="companyMasterBody" class="master-body"><div class="master-loading">Carregando clusters da Multivale…</div></section></main>'
+ $('#app').innerHTML='<main class="master-shell"><header class="master-top"><div class="master-brand"><img src="/icon-192.png" alt=""><div><span>GEOFOTO KMZ</span><h1>Gestão Multiempresa</h1><small>Painel único da organização</small></div></div><div class="master-top-actions"><button class="btn secondary" id="cmRefresh">Atualizar</button><button class="btn secondary" id="cmLogout">Sair</button></div></header><section id="companyMasterBody" class="master-body"><div class="master-loading">Carregando contas e clusters da organização…</div></section></main>'
  $('#cmLogout').onclick=()=>masterLogout(COMPANY_MASTER_TOKEN);$('#cmRefresh').onclick=refreshCompanyMaster
  await refreshCompanyMaster()
 }
@@ -1267,9 +1268,9 @@ async function refreshCompanyMaster(){
  const body=$('#companyMasterBody');if(!body)return;body.innerHTML='<div class="master-loading">Atualizando painel…</div>'
  try{
   const d=await api('/company-master/dashboard',{timeout:15000}),t=d.totals||{},clusters=d.clusters||[],recent=d.recent||[]
-  body.innerHTML='<div class="master-hero"><div><span>VISÃO CONSOLIDADA</span><h2>'+esc(d.company?.name||'MULTIVALE')+'</h2><p>Todos os acessos vinculados à Multivale aparecem neste painel. Selecione um cluster para abrir a área completa ou administrar os logins.</p></div><div class="master-status-pill">● Master ativo</div></div>'+
+  body.innerHTML='<div class="master-hero"><div><span>VISÃO CONSOLIDADA</span><h2>'+esc(d.company?.name||'Organização')+'</h2><p>Todos os acessos vinculados a esta organização aparecem neste painel. Selecione uma conta ou cluster para abrir a área completa ou administrar os logins.</p></div><div class="master-status-pill">● Gestão ativa</div></div>'+
   '<div class="master-metrics"><div><span>Clusters</span><b>'+masterMetric(t.clusters)+'</b></div><div><span>Usuários</span><b>'+masterMetric(t.users)+'</b></div><div><span>Registros</span><b>'+masterMetric(t.points)+'</b></div><div><span>Ativos</span><b>'+masterMetric(clusters.filter(x=>x.enabled).length)+'</b></div></div>'+
-  '<div class="master-layout"><section class="master-card"><div class="master-section-head"><div><span>CLUSTERS DA EMPRESA</span><h3>Contas vinculadas à MULTIVALE</h3></div><small>'+clusters.length+' encontrados</small></div><div class="cluster-list">'+clusters.map(c=>'<article class="cluster-row '+(c.enabled?'':'disabled')+'"><div class="cluster-main"><span class="cluster-dot"></span><div><b>'+esc(c.name)+'</b><small>'+esc(c.id)+(c.id==='principal'?' · PRINCIPAL':'')+'</small></div></div><div class="cluster-stats"><span><b>'+masterMetric(c.users)+'</b> usuários</span><span><b>'+masterMetric(c.points)+'</b> registros</span><em>'+(c.enabled?'Ativo':'Desativado')+'</em></div><div class="cluster-actions"><button class="btn primary" data-cm-enter="'+attr(c.id)+'" '+(c.enabled?'':'disabled')+'>Acessar área</button><button class="btn secondary" data-cm-users="'+attr(c.id)+'" data-name="'+attr(c.name)+'">Usuários</button></div></article>').join('')+'</div></section>'+
+  '<div class="master-layout"><section class="master-card"><div class="master-section-head"><div><span>CONTAS E CLUSTERS</span><h3>Acessos vinculados à organização</h3></div><small>'+clusters.length+' encontrados</small></div><div class="cluster-list">'+clusters.map(c=>'<article class="cluster-row '+(c.enabled?'':'disabled')+'"><div class="cluster-main"><span class="cluster-dot"></span><div><b>'+esc(c.name)+'</b><small>'+esc(c.id)+(c.id==='principal'?' · PRINCIPAL':'')+'</small></div></div><div class="cluster-stats"><span><b>'+masterMetric(c.users)+'</b> usuários</span><span><b>'+masterMetric(c.points)+'</b> registros</span><em>'+(c.enabled?'Ativo':'Desativado')+'</em></div><div class="cluster-actions"><button class="btn primary" data-cm-enter="'+attr(c.id)+'" '+(c.enabled?'':'disabled')+'>Acessar área</button><button class="btn secondary" data-cm-users="'+attr(c.id)+'" data-name="'+attr(c.name)+'">Usuários</button></div></article>').join('')+'</div></section>'+
   '<aside class="master-card"><div class="master-section-head"><div><span>ATIVIDADE</span><h3>Últimos registros</h3></div></div><div class="master-recent">'+(recent.map(r=>'<div><b>'+esc(r.name)+'</b><span>'+esc(r.cluster)+' · '+esc(r.technician||'Sem identificação')+'</span><small>'+esc(fmt(r.time))+(r.city?' · '+esc(r.city):'')+'</small></div>').join('')||'<p class="muted">Nenhum registro.</p>')+'</div></aside></div>'
   document.querySelectorAll('[data-cm-enter]').forEach(b=>b.onclick=()=>enterCompanyMasterCluster(b.dataset.cmEnter))
   document.querySelectorAll('[data-cm-users]').forEach(b=>b.onclick=()=>openCompanyMasterUsers(b.dataset.cmUsers,b.dataset.name))
@@ -1285,7 +1286,7 @@ async function openCompanyMasterUsers(id,name){
 }
 async function ownerMasterView(){
  stopCamera();token=sessionStorage.getItem(OWNER_MASTER_TOKEN)||token;if(!token)return loginView();role='superadmin';sessionStorage.setItem(MASTER_VIEW,'owner')
- $('#app').innerHTML='<main class="master-shell owner-shell"><header class="master-top"><div class="master-brand"><img src="/icon-192.png" alt=""><div><span>GEOFOTO KMZ</span><h1>Master do Aplicativo</h1><small>Proprietário · visão geral da plataforma</small></div></div><div class="master-top-actions"><button class="btn secondary" id="omRefresh">Atualizar</button><button class="btn secondary" id="omLogout">Sair</button></div></header><section id="ownerMasterBody" class="master-body"><div class="master-loading">Carregando cadastros…</div></section></main>'
+ $('#app').innerHTML='<main class="master-shell owner-shell"><header class="master-top"><div class="master-brand"><img src="/icon-192.png" alt=""><div><span>GEOFOTO KMZ</span><h1>Administração da Plataforma</h1><small>Proprietário · visão geral da plataforma</small></div></div><div class="master-top-actions"><button class="btn secondary" id="omRefresh">Atualizar</button><button class="btn secondary" id="omLogout">Sair</button></div></header><section id="ownerMasterBody" class="master-body"><div class="master-loading">Carregando cadastros…</div></section></main>'
  $('#omLogout').onclick=()=>masterLogout(OWNER_MASTER_TOKEN);$('#omRefresh').onclick=refreshOwnerMaster
  await refreshOwnerMaster()
 }
@@ -1295,7 +1296,7 @@ async function refreshOwnerMaster(){
   const d=await api('/master/dashboard',{timeout:15000}),t=d.totals||{},companies=d.companies||[]
   body.innerHTML='<div class="master-hero owner"><div><span>PROPRIETÁRIO DO GEOFOTO KMZ</span><h2>Painel Geral do Aplicativo</h2><p>Visualize todas as contas cadastradas. Desativar ou excluir um acesso não apaga fotos, pontos ou histórico.</p></div><div class="master-status-pill">Acesso particular</div></div>'+
   '<div class="master-metrics"><div><span>Contas</span><b>'+masterMetric(t.accounts)+'</b></div><div><span>Ativas</span><b>'+masterMetric(t.active)+'</b></div><div><span>Usuários</span><b>'+masterMetric(t.users)+'</b></div><div><span>Registros</span><b>'+masterMetric(t.points)+'</b></div></div>'+
-  '<section class="master-card"><div class="master-section-head"><div><span>CADASTROS DA PLATAFORMA</span><h3>Empresas e contas</h3></div><small>'+companies.length+' contas</small></div><div class="owner-account-list">'+companies.map(c=>{const linked=String(c.company_ids||'').split(',').includes('multivale');return '<article class="owner-account-row '+(c.enabled?'':'disabled')+'"><div><b>'+esc(c.id==='principal'?'Curitiba (PRINCIPAL)':c.name)+'</b><small>'+esc(c.id)+'</small></div><div class="owner-account-badges"><span>'+masterMetric(c.users)+' usuários</span><span>'+masterMetric(c.points)+' registros</span>'+(linked?'<em>MULTIVALE</em>':'')+'<strong>'+(c.enabled?'Ativa':'Desativada')+'</strong></div><div class="cluster-actions"><button class="btn primary" data-om-enter="'+attr(c.id)+'" '+(c.enabled?'':'disabled')+'>Acessar</button><button class="btn secondary" data-om-users="'+attr(c.id)+'" data-name="'+attr(c.name)+'">Usuários</button><button class="btn secondary" data-om-link="'+attr(c.id)+'" data-linked="'+(linked?'1':'0')+'">'+(linked?'Desvincular MULTIVALE':'Vincular à MULTIVALE')+'</button>'+(c.id==='principal'?'':'<button class="btn secondary" data-om-status="'+attr(c.id)+'" data-enabled="'+(c.enabled?'1':'0')+'">'+(c.enabled?'Desativar conta':'Reativar conta')+'</button>')+'</div></article>'}).join('')+'</div></section>'
+  '<section class="master-card"><div class="master-section-head"><div><span>CADASTROS DA PLATAFORMA</span><h3>Empresas e contas</h3></div><small>'+companies.length+' contas</small></div><div class="owner-account-list">'+companies.map(c=>{const linked=String(c.company_ids||'').split(',').includes('multivale');return '<article class="owner-account-row '+(c.enabled?'':'disabled')+'"><div><b>'+esc(c.id==='principal'?'Conta principal':c.name)+'</b><small>'+esc(c.id)+'</small></div><div class="owner-account-badges"><span>'+masterMetric(c.users)+' usuários</span><span>'+masterMetric(c.points)+' registros</span>'+(linked?'<em>MULTIVALE</em>':'')+'<strong>'+(c.enabled?'Ativa':'Desativada')+'</strong></div><div class="cluster-actions"><button class="btn primary" data-om-enter="'+attr(c.id)+'" '+(c.enabled?'':'disabled')+'>Acessar</button><button class="btn secondary" data-om-users="'+attr(c.id)+'" data-name="'+attr(c.name)+'">Usuários</button><button class="btn secondary" data-om-link="'+attr(c.id)+'" data-linked="'+(linked?'1':'0')+'">'+(linked?'Desvincular MULTIVALE':'Vincular à MULTIVALE')+'</button>'+(c.id==='principal'?'':'<button class="btn secondary" data-om-status="'+attr(c.id)+'" data-enabled="'+(c.enabled?'1':'0')+'">'+(c.enabled?'Desativar conta':'Reativar conta')+'</button>')+'</div></article>'}).join('')+'</div></section>'
   document.querySelectorAll('[data-om-enter]').forEach(b=>b.onclick=()=>enterOwnerMasterTenant(b.dataset.omEnter))
   document.querySelectorAll('[data-om-users]').forEach(b=>b.onclick=()=>openOwnerMasterUsers(b.dataset.omUsers,b.dataset.name))
   document.querySelectorAll('[data-om-link]').forEach(b=>b.onclick=()=>toggleOwnerMultivaleLink(b.dataset.omLink,b.dataset.linked==='1'))
@@ -1340,7 +1341,7 @@ function openMasterUsersModal({mode,tenantId,title,users}){
 function addMasterReturnButton(){
  const cm=sessionStorage.getItem(COMPANY_MASTER_TOKEN),om=sessionStorage.getItem(OWNER_MASTER_TOKEN);if(!cm&&!om)return
  const top=document.querySelector('.top');if(!top||document.querySelector('#masterReturnButton'))return
- const b=document.createElement('button');b.id='masterReturnButton';b.type='button';b.className='master-return-button';b.textContent=cm?'← Master MULTIVALE':'← Master do Aplicativo'
+ const b=document.createElement('button');b.id='masterReturnButton';b.type='button';b.className='master-return-button';b.textContent=cm?'← Gestão Multiempresa':'← Administração da Plataforma'
  b.onclick=async()=>{stopCamera();sessionStorage.removeItem('gf_token');localStorage.removeItem('gf_token');if(cm){token=cm;role='companymaster';sessionStorage.setItem(MASTER_VIEW,'company');await companyMasterView()}else{token=om;role='superadmin';sessionStorage.setItem(MASTER_VIEW,'owner');await ownerMasterView()}}
  top.appendChild(b)
 }
