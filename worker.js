@@ -37,6 +37,10 @@ async function sessionOf(req,env){
     const master=await env.DB.prepare('SELECT expires_at FROM master_sessions WHERE token=? AND expires_at>?').bind(token,now).first().catch(()=>null)
     return master?{tenant_id:'master',role:'superadmin',super:true,legacy:false}:null
   }
+  if(token.startsWith('cm_')){
+    const master=await env.DB.prepare('SELECT company_id,username,expires_at FROM company_master_sessions WHERE token=? AND expires_at>?').bind(token,now).first().catch(()=>null)
+    return master?{tenant_id:'company-master',role:'companymaster',company:true,company_id:String(master.company_id||''),username:String(master.username||''),super:false,legacy:false}:null
+  }
   const row=await env.DB.prepare('SELECT s.tenant_id,s.role,s.username,s.expires_at,t.enabled FROM tenant_sessions s JOIN tenants t ON t.id=s.tenant_id WHERE s.token=? AND s.expires_at>?').bind(token,now).first()
   return row&&row.enabled?{tenant_id:row.tenant_id,role:row.role,username:String(row.username||''),super:false,legacy:false}:null
 }
@@ -72,6 +76,8 @@ export default {
     env.DB.prepare('INSERT INTO tenant_recovery (tenant_id,recovery_hash,created_at) VALUES (?,?,?)').bind(id,await sha256(recovery),now),
     env.DB.prepare('INSERT INTO registration_log (ip_hash,tenant_id,created_at) VALUES (?,?,?)').bind(ipHash,id,now)
    ])
+   const normalizedName=companySlug(name)
+   if(normalizedName.includes('multivale'))await env.DB.prepare('INSERT OR IGNORE INTO company_group_tenants (company_id,tenant_id,cluster_name,enabled) VALUES (?,?,?,1)').bind('multivale',id,name).run().catch(()=>{})
    return json({ok:true,accountCode:id,companyName:name,admin:{user:'admin',password:adminPass},collaborator:{user:'colaborador',password:userPass},recoveryCode:recovery},201)
   }
   if(url.pathname==='/api/recover-company'&&req.method==='POST'){
@@ -94,6 +100,14 @@ export default {
    await env.DB.prepare('INSERT INTO master_sessions (token,username,expires_at) VALUES (?,?,?)').bind(token,user,exp).run()
    return json({token,role:'superadmin',expiresAt:exp})
   }
+  if(url.pathname==='/api/company-master/login'&&req.method==='POST'){
+   const b=await req.json().catch(()=>({})),company=String(b.company||'multivale').trim().toLowerCase(),user=String(b.user||'').trim()
+   const m=await env.DB.prepare('SELECT u.password_hash,u.enabled,g.name,g.enabled company_enabled FROM company_master_users u JOIN company_groups g ON g.id=u.company_id WHERE u.company_id=? AND u.username=?').bind(company,user).first().catch(()=>null)
+   if(!m||!m.enabled||!m.company_enabled||!(await verifyPassword(b.pass,m.password_hash)))return json({error:'Usuário ou senha do Master da empresa inválidos'},401)
+   const token='cm_'+crypto.randomUUID()+crypto.randomUUID(),exp=new Date(Date.now()+12*60*60*1000).toISOString()
+   await env.DB.prepare('INSERT INTO company_master_sessions (token,company_id,username,expires_at) VALUES (?,?,?,?)').bind(token,company,user,exp).run()
+   return json({token,role:'companymaster',companyId:company,companyName:m.name,username:user,expiresAt:exp})
+  }
   if(url.pathname==='/api/login'&&req.method==='POST'){
    const b=await req.json().catch(()=>({})),tenant=cleanTenant(b.account)
    if(tenant==='principal'&&b.user===env.GEOFOTO_ADMIN_USER&&b.pass===env.GEOFOTO_ADMIN_PASS)
@@ -110,6 +124,8 @@ export default {
   if(!url.pathname.startsWith('/api/'))return env.ASSETS.fetch(req)
   const s=await sessionOf(req,env)
   if(!s)return json({error:'Não autorizado'},401)
+  const companyMasterResponse=await handleCompanyMasterRoutes(req,env,s,url);if(companyMasterResponse)return companyMasterResponse
+  const platformMasterResponse=await handlePlatformMasterRoutes(req,env,s,url);if(platformMasterResponse)return platformMasterResponse
   if(url.pathname==='/api/master/logout'&&req.method==='POST'&&s.super){
    await env.DB.prepare('DELETE FROM master_sessions WHERE token=?').bind(bearer(req)||cookieToken(req)).run()
    return json({ok:true},200,{'set-cookie':'gf_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'})
@@ -343,4 +359,192 @@ async function exportKmz(req,env,s){
  }
  const bytes=await z.generateAsync({type:'uint8array',compression:'STORE'});
  return new Response(bytes,{headers:{'content-type':'application/vnd.google-earth.kmz','content-disposition':'attachment; filename="'+exportDateName('kmz')+'"','cache-control':'no-store','x-content-type-options':'nosniff','content-length':String(bytes.byteLength)}})
+}
+
+
+async function companyTenantAllowed(env,companyId,tenantId){
+ const row=await env.DB.prepare('SELECT g.tenant_id,g.cluster_name,t.name,t.enabled FROM company_group_tenants g JOIN tenants t ON t.id=g.tenant_id WHERE g.company_id=? AND g.tenant_id=? AND g.enabled=1').bind(companyId,tenantId).first().catch(()=>null)
+ return row||null
+}
+async function companyMasterUsers(env,tenantId){
+ const {results}=await env.DB.prepare('SELECT username,role,enabled,created_at FROM tenant_users WHERE tenant_id=? ORDER BY role DESC,username').bind(tenantId).all()
+ if(tenantId==='principal'&&!(results||[]).length){
+  return [
+   {username:String(env.GEOFOTO_ADMIN_USER||'admin'),role:'admin',enabled:1,created_at:null,managed:false,source:'principal'},
+   {username:String(env.GEOFOTO_USER||'colaborador'),role:'user',enabled:1,created_at:null,managed:false,source:'principal'}
+  ]
+ }
+ return (results||[]).map(x=>({...x,managed:true}))
+}
+async function handleCompanyMasterRoutes(req,env,s,url){
+ if(!url.pathname.startsWith('/api/company-master/'))return null
+ if(!s.company)return json({error:'Acesso exclusivo do Master da empresa'},403)
+ const companyId=String(s.company_id||'')
+ if(url.pathname==='/api/company-master/logout'&&req.method==='POST'){
+  await env.DB.prepare('DELETE FROM company_master_sessions WHERE token=?').bind(bearer(req)||cookieToken(req)).run()
+  return json({ok:true})
+ }
+ if(url.pathname==='/api/company-master/dashboard'&&req.method==='GET'){
+  const company=await env.DB.prepare('SELECT id,name,enabled FROM company_groups WHERE id=?').bind(companyId).first()
+  if(!company?.enabled)return json({error:'Master da empresa desativado'},403)
+  const {results}=await env.DB.prepare(`SELECT g.tenant_id id,COALESCE(NULLIF(g.cluster_name,''),t.name) name,t.name account_name,t.enabled,
+   CASE WHEN t.id='principal' AND (SELECT COUNT(*) FROM tenant_users u0 WHERE u0.tenant_id=t.id)=0 THEN 2 ELSE (SELECT COUNT(*) FROM tenant_users u WHERE u.tenant_id=t.id) END users,
+   (SELECT COUNT(*) FROM points p WHERE p.tenant_id=t.id) points
+   FROM company_group_tenants g JOIN tenants t ON t.id=g.tenant_id
+   WHERE g.company_id=? AND g.enabled=1
+   ORDER BY CASE WHEN t.id='principal' THEN 0 ELSE 1 END,COALESCE(NULLIF(g.cluster_name,''),t.name)`).bind(companyId).all()
+  const clusters=results||[],totals=clusters.reduce((a,x)=>({clusters:a.clusters+1,users:a.users+Number(x.users||0),points:a.points+Number(x.points||0)}),{clusters:0,users:0,points:0})
+  const recent=await env.DB.prepare(`SELECT p.id,p.name,p.technician,p.time,p.city,p.tenant_id,COALESCE(NULLIF(g.cluster_name,''),t.name) cluster
+   FROM points p JOIN company_group_tenants g ON g.tenant_id=p.tenant_id JOIN tenants t ON t.id=p.tenant_id
+   WHERE g.company_id=? AND g.enabled=1 ORDER BY p.time DESC LIMIT 12`).bind(companyId).all().catch(()=>({results:[]}))
+  return json({company:{id:company.id,name:company.name},totals,clusters,recent:recent.results||[]})
+ }
+ let m=url.pathname.match(/^\/api\/company-master\/clusters\/([^/]+)\/users$/)
+ if(m&&req.method==='GET'){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),allowed=await companyTenantAllowed(env,companyId,tenantId)
+  if(!allowed)return json({error:'Cluster não vinculado à empresa'},403)
+  return json({cluster:{id:tenantId,name:allowed.cluster_name||allowed.name},users:await companyMasterUsers(env,tenantId)})
+ }
+ if(m&&req.method==='POST'){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),allowed=await companyTenantAllowed(env,companyId,tenantId)
+  if(!allowed)return json({error:'Cluster não vinculado à empresa'},403)
+  const b=await req.json().catch(()=>({})),user=String(b.user||'').trim(),pass=String(b.pass||''),role=b.role==='admin'?'admin':'user'
+  if(user.length<3||pass.length<6)return json({error:'Usuário deve ter 3+ caracteres e senha 6+ caracteres'},400)
+  await env.DB.prepare('INSERT INTO tenant_users (tenant_id,username,password_hash,role,enabled) VALUES (?,?,?,?,1) ON CONFLICT(tenant_id,username) DO UPDATE SET password_hash=excluded.password_hash,role=excluded.role,enabled=1').bind(tenantId,user,await passwordHash(pass),role).run()
+  return json({ok:true,user,role},201)
+ }
+ m=url.pathname.match(/^\/api\/company-master\/clusters\/([^/]+)\/enter$/)
+ if(m&&req.method==='POST'){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),allowed=await companyTenantAllowed(env,companyId,tenantId)
+  if(!allowed)return json({error:'Cluster não vinculado à empresa'},403)
+  if(!allowed.enabled)return json({error:'Este cluster está desativado'},409)
+  const accessToken=crypto.randomUUID()+crypto.randomUUID(),exp=new Date(Date.now()+12*60*60*1000).toISOString()
+  await env.DB.prepare('INSERT INTO tenant_sessions (token,tenant_id,role,username,expires_at) VALUES (?,?,?,?,?)').bind(accessToken,tenantId,'admin','MASTER MULTIVALE',exp).run()
+  return json({token:accessToken,role:'admin',tenant:tenantId,username:'MASTER MULTIVALE',accountName:allowed.cluster_name||allowed.name,masterCompany:companyId})
+ }
+ m=url.pathname.match(/^\/api\/company-master\/clusters\/([^/]+)\/users\/([^/]+)\/password$/)
+ if(m&&req.method==='POST'){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),user=decodeURIComponent(m[2]),allowed=await companyTenantAllowed(env,companyId,tenantId)
+  if(!allowed)return json({error:'Cluster não vinculado à empresa'},403)
+  const row=await env.DB.prepare('SELECT username FROM tenant_users WHERE tenant_id=? AND username=?').bind(tenantId,user).first()
+  if(!row)return json({error:tenantId==='principal'?'O acesso principal é protegido e não pode ser alterado por esta tela.':'Usuário não encontrado'},404)
+  const b=await req.json().catch(()=>({})),pass=String(b.pass||'')
+  if(pass.length<6)return json({error:'A senha deve ter no mínimo 6 caracteres'},400)
+  await env.DB.prepare('UPDATE tenant_users SET password_hash=?,enabled=1 WHERE tenant_id=? AND username=?').bind(await passwordHash(pass),tenantId,user).run()
+  await env.DB.prepare('DELETE FROM tenant_sessions WHERE tenant_id=? AND username=?').bind(tenantId,user).run()
+  return json({ok:true,user})
+ }
+ m=url.pathname.match(/^\/api\/company-master\/clusters\/([^/]+)\/users\/([^/]+)$/)
+ if(m&&(req.method==='PATCH'||req.method==='DELETE')){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),user=decodeURIComponent(m[2]),allowed=await companyTenantAllowed(env,companyId,tenantId)
+  if(!allowed)return json({error:'Cluster não vinculado à empresa'},403)
+  const row=await env.DB.prepare('SELECT username,role,enabled FROM tenant_users WHERE tenant_id=? AND username=?').bind(tenantId,user).first()
+  if(!row)return json({error:tenantId==='principal'?'O acesso principal é protegido e não pode ser alterado por esta tela.':'Usuário não encontrado'},404)
+  if(req.method==='DELETE'){
+   await env.DB.prepare('DELETE FROM tenant_users WHERE tenant_id=? AND username=?').bind(tenantId,user).run()
+   await env.DB.prepare('DELETE FROM tenant_sessions WHERE tenant_id=? AND username=?').bind(tenantId,user).run()
+   return json({ok:true,user,historyPreserved:true})
+  }
+  const b=await req.json().catch(()=>({})),enabled=b.enabled===undefined?Number(row.enabled):(b.enabled?1:0),role=b.role?(b.role==='admin'?'admin':'user'):row.role
+  await env.DB.prepare('UPDATE tenant_users SET enabled=?,role=? WHERE tenant_id=? AND username=?').bind(enabled,role,tenantId,user).run()
+  if(!enabled)await env.DB.prepare('DELETE FROM tenant_sessions WHERE tenant_id=? AND username=?').bind(tenantId,user).run()
+  return json({ok:true,user,enabled,role})
+ }
+ return json({error:'Rota Master da empresa não encontrada'},404)
+}
+
+
+async function platformMasterUsers(env,tenantId){
+ const {results}=await env.DB.prepare('SELECT username,role,enabled,created_at FROM tenant_users WHERE tenant_id=? ORDER BY role DESC,username').bind(tenantId).all()
+ if(tenantId==='principal'&&!(results||[]).length){
+  return [
+   {username:String(env.GEOFOTO_ADMIN_USER||'admin'),role:'admin',enabled:1,created_at:null,managed:false,source:'principal'},
+   {username:String(env.GEOFOTO_USER||'colaborador'),role:'user',enabled:1,created_at:null,managed:false,source:'principal'}
+  ]
+ }
+ return (results||[]).map(x=>({...x,managed:true}))
+}
+async function handlePlatformMasterRoutes(req,env,s,url){
+ if(!url.pathname.startsWith('/api/master/'))return null
+ if(!s.super)return null
+ if(url.pathname==='/api/master/dashboard'&&req.method==='GET'){
+  const {results}=await env.DB.prepare(`SELECT t.id,t.name,t.enabled,t.created_at,
+   CASE WHEN t.id='principal' AND (SELECT COUNT(*) FROM tenant_users u0 WHERE u0.tenant_id=t.id)=0 THEN 2 ELSE (SELECT COUNT(*) FROM tenant_users u WHERE u.tenant_id=t.id) END users,
+   (SELECT COUNT(*) FROM points p WHERE p.tenant_id=t.id) points,
+   (SELECT group_concat(company_id,',') FROM company_group_tenants g WHERE g.tenant_id=t.id AND g.enabled=1) company_ids
+   FROM tenants t ORDER BY CASE WHEN t.id='principal' THEN 0 ELSE 1 END,t.created_at DESC`).all()
+  const companies=results||[],totals=companies.reduce((a,x)=>({accounts:a.accounts+1,users:a.users+Number(x.users||0),points:a.points+Number(x.points||0),active:a.active+(x.enabled?1:0)}),{accounts:0,users:0,points:0,active:0})
+  return json({totals,companies})
+ }
+ let m=url.pathname.match(/^\/api\/master\/tenants\/([^/]+)\/users$/)
+ if(m&&req.method==='GET'){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),t=await env.DB.prepare('SELECT id,name,enabled FROM tenants WHERE id=?').bind(tenantId).first()
+  if(!t)return json({error:'Conta não encontrada'},404)
+  return json({tenant:t,users:await platformMasterUsers(env,tenantId)})
+ }
+ if(m&&req.method==='POST'){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),t=await env.DB.prepare('SELECT id FROM tenants WHERE id=?').bind(tenantId).first()
+  if(!t)return json({error:'Conta não encontrada'},404)
+  const b=await req.json().catch(()=>({})),user=String(b.user||'').trim(),pass=String(b.pass||''),role=b.role==='admin'?'admin':'user'
+  if(user.length<3||pass.length<6)return json({error:'Usuário deve ter 3+ caracteres e senha 6+ caracteres'},400)
+  await env.DB.prepare('INSERT INTO tenant_users (tenant_id,username,password_hash,role,enabled) VALUES (?,?,?,?,1) ON CONFLICT(tenant_id,username) DO UPDATE SET password_hash=excluded.password_hash,role=excluded.role,enabled=1').bind(tenantId,user,await passwordHash(pass),role).run()
+  return json({ok:true,user,role},201)
+ }
+ m=url.pathname.match(/^\/api\/master\/tenants\/([^/]+)\/enter$/)
+ if(m&&req.method==='POST'){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),t=await env.DB.prepare('SELECT id,name,enabled FROM tenants WHERE id=?').bind(tenantId).first()
+  if(!t)return json({error:'Conta não encontrada'},404)
+  if(!t.enabled)return json({error:'Esta conta está desativada'},409)
+  const accessToken=crypto.randomUUID()+crypto.randomUUID(),exp=new Date(Date.now()+12*60*60*1000).toISOString()
+  await env.DB.prepare('INSERT INTO tenant_sessions (token,tenant_id,role,username,expires_at) VALUES (?,?,?,?,?)').bind(accessToken,tenantId,'admin','MASTER DO APLICATIVO',exp).run()
+  return json({token:accessToken,role:'admin',tenant:tenantId,username:'MASTER DO APLICATIVO',accountName:t.name,ownerMaster:true})
+ }
+ m=url.pathname.match(/^\/api\/master\/tenants\/([^/]+)\/link$/)
+ if(m&&req.method==='POST'){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),t=await env.DB.prepare('SELECT id,name FROM tenants WHERE id=?').bind(tenantId).first()
+  if(!t)return json({error:'Conta não encontrada'},404)
+  const b=await req.json().catch(()=>({})),companyId=String(b.companyId||'').trim().toLowerCase(),clusterName=String(b.clusterName||t.name).trim().slice(0,100)
+  if(!companyId){
+   await env.DB.prepare('DELETE FROM company_group_tenants WHERE tenant_id=?').bind(tenantId).run()
+   return json({ok:true,tenantId,companyId:null})
+  }
+  const company=await env.DB.prepare('SELECT id FROM company_groups WHERE id=? AND enabled=1').bind(companyId).first()
+  if(!company)return json({error:'Empresa Master não encontrada'},404)
+  await env.DB.prepare('INSERT INTO company_group_tenants (company_id,tenant_id,cluster_name,enabled) VALUES (?,?,?,1) ON CONFLICT(company_id,tenant_id) DO UPDATE SET cluster_name=excluded.cluster_name,enabled=1').bind(companyId,tenantId,clusterName).run()
+  return json({ok:true,tenantId,companyId,clusterName})
+ }
+ m=url.pathname.match(/^\/api\/master\/tenants\/([^/]+)\/status$/)
+ if(m&&req.method==='PATCH'){
+  const tenantId=cleanTenant(decodeURIComponent(m[1]))
+  if(tenantId==='principal')return json({error:'A conta PRINCIPAL é protegida'},409)
+  const t=await env.DB.prepare('SELECT id,name FROM tenants WHERE id=?').bind(tenantId).first();if(!t)return json({error:'Conta não encontrada'},404)
+  const b=await req.json().catch(()=>({})),enabled=b.enabled?1:0
+  await env.DB.prepare('UPDATE tenants SET enabled=? WHERE id=?').bind(enabled,tenantId).run()
+  if(!enabled)await env.DB.prepare('DELETE FROM tenant_sessions WHERE tenant_id=?').bind(tenantId).run()
+  return json({ok:true,id:tenantId,enabled})
+ }
+ m=url.pathname.match(/^\/api\/master\/tenants\/([^/]+)\/users\/([^/]+)\/password$/)
+ if(m&&req.method==='POST'){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),user=decodeURIComponent(m[2]),row=await env.DB.prepare('SELECT username FROM tenant_users WHERE tenant_id=? AND username=?').bind(tenantId,user).first()
+  if(!row)return json({error:tenantId==='principal'?'O acesso principal é protegido e ainda usa credencial segura do ambiente.':'Usuário não encontrado'},404)
+  const b=await req.json().catch(()=>({})),pass=String(b.pass||'');if(pass.length<6)return json({error:'A senha deve ter no mínimo 6 caracteres'},400)
+  await env.DB.prepare('UPDATE tenant_users SET password_hash=?,enabled=1 WHERE tenant_id=? AND username=?').bind(await passwordHash(pass),tenantId,user).run()
+  await env.DB.prepare('DELETE FROM tenant_sessions WHERE tenant_id=? AND username=?').bind(tenantId,user).run()
+  return json({ok:true,user})
+ }
+ m=url.pathname.match(/^\/api\/master\/tenants\/([^/]+)\/users\/([^/]+)$/)
+ if(m&&(req.method==='PATCH'||req.method==='DELETE')){
+  const tenantId=cleanTenant(decodeURIComponent(m[1])),user=decodeURIComponent(m[2]),row=await env.DB.prepare('SELECT username,role,enabled FROM tenant_users WHERE tenant_id=? AND username=?').bind(tenantId,user).first()
+  if(!row)return json({error:tenantId==='principal'?'O acesso principal é protegido e ainda usa credencial segura do ambiente.':'Usuário não encontrado'},404)
+  if(req.method==='DELETE'){
+   await env.DB.prepare('DELETE FROM tenant_users WHERE tenant_id=? AND username=?').bind(tenantId,user).run()
+   await env.DB.prepare('DELETE FROM tenant_sessions WHERE tenant_id=? AND username=?').bind(tenantId,user).run()
+   return json({ok:true,user,historyPreserved:true})
+  }
+  const b=await req.json().catch(()=>({})),enabled=b.enabled===undefined?Number(row.enabled):(b.enabled?1:0),role=b.role?(b.role==='admin'?'admin':'user'):row.role
+  await env.DB.prepare('UPDATE tenant_users SET enabled=?,role=? WHERE tenant_id=? AND username=?').bind(enabled,role,tenantId,user).run()
+  if(!enabled)await env.DB.prepare('DELETE FROM tenant_sessions WHERE tenant_id=? AND username=?').bind(tenantId,user).run()
+  return json({ok:true,user,enabled,role})
+ }
+ return null
 }
