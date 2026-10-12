@@ -1,5 +1,5 @@
-const CACHE='geofoto-kmz-v54';
-const CORE=['/','/manifest.webmanifest','/map-marker.png'];
+const CACHE='geofoto-kmz-v55';
+const CORE=['/','/manifest.webmanifest','/map-marker.png','/navegacao/index.html','/navegacao/style.css','/navegacao/app.js','/navegacao/vendor/leaflet/leaflet.css','/navegacao/vendor/leaflet/leaflet.js','/navegacao/vendor/jszip.min.js'];
 self.addEventListener('install',e=>e.waitUntil((async()=>{
  const c=await caches.open(CACHE);
  await Promise.all(CORE.map(u=>c.add(u).catch(()=>{})));
@@ -21,6 +21,6 @@ self.addEventListener('fetch',e=>{
  if(u.pathname==='/version.json'){e.respondWith(fetch(req,{cache:'no-store'}));return}
  if(u.pathname.startsWith('/api/tile/')){e.respondWith(caches.match(req).then(hit=>hit||fetch(req).then(r=>{if(r.ok)caches.open(CACHE).then(c=>c.put(req,r.clone()));return r})));return}
  if(u.pathname.startsWith('/api/'))return;
- if(req.mode==='navigate'){e.respondWith(fetch(req).then(r=>{if(r.ok)caches.open(CACHE).then(c=>c.put('/',r.clone()));return r}).catch(()=>caches.match('/')));return}
+ if(req.mode==='navigate'){const key=u.pathname.startsWith('/navegacao/')?'/navegacao/index.html':'/';e.respondWith(fetch(req).then(r=>{if(r.ok)caches.open(CACHE).then(c=>c.put(key,r.clone()));return r}).catch(()=>caches.match(key).then(hit=>hit||caches.match('/'))));return}
  e.respondWith(caches.match(req).then(hit=>hit||fetch(req).then(r=>{if(r.ok)caches.open(CACHE).then(c=>c.put(req,r.clone()));return r})))
 });

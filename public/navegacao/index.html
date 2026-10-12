@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GeoFoto Navegação</title>
+<link rel="stylesheet" href="./vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand"><button id="backToGeoFoto" class="embedded-back embedded-only" type="button" aria-label="Voltar ao GeoFoto KMZ">←</button><div class="brandmark">GF</div><div><b>GeoFoto Navegação</b><small>Módulo integrado ao GeoFoto KMZ</small></div></div>
+    <div class="top-actions">
+      <button id="btnGps" class="btn">📍 GPS</button>
+      <button id="btnDrive" class="btn">🚗 Modo condução</button>
+      <select id="baseMap" class="select"><option value="satellite">Satélite</option><option value="hybrid">Híbrido</option><option value="street">Ruas</option><option value="topo">Topográfico</option></select>
+    </div>
+  </header>
+  <div class="layout">
+    <aside id="sidebar" class="sidebar">
+      <div class="mobile-sheet-head">
+        <button id="mobileSheetGrip" class="mobile-sheet-grip" type="button" aria-label="Redimensionar painel"><span></span></button>
+        <b id="mobileSheetTitle">Camadas</b>
+        <button id="mobileSheetClose" class="mobile-sheet-close" type="button" aria-label="Fechar painel">×</button>
+      </div>
+      <div class="side-tabs">
+        <button class="tab active" data-tab="layers">Camadas</button>
+        <button class="tab" data-tab="tools">Ferramentas</button>
+        <button class="tab" data-tab="projects">Projetos KMZ</button>
+      </div>
+      <section id="tab-layers" class="tab-panel active">
+        <div class="panel-block">
+          <label class="file-btn">＋ Adicionar KMZ/KML<input id="fileInput" type="file" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml" multiple></label>
+          <div class="mobile-map-select"><span>Mapa</span><select id="mobileBaseMap"><option value="satellite">Satélite</option><option value="hybrid">Híbrido</option><option value="street">Ruas</option><option value="topo">Topográfico</option></select></div>
+          <div class="search-row"><input id="searchInput" placeholder="Pesquisar cabo, estação, caixa, CS, ponto..."><button id="clearSearch">×</button></div>
+          <div id="searchResults" class="search-results hidden"></div>
+        </div>
+        <div class="panel-title"><span>Arquivos e camadas</span><small id="layerCount">0 itens</small></div>
+        <div id="layerTree" class="tree empty">Nenhum KMZ/KML carregado.</div>
+        <div class="panel-title"><span>Meus desenhos</span><small>editáveis</small></div>
+        <div id="annotationTree" class="tree empty">Nenhum marcador ou traçado criado.</div>
+      </section>
+      <section id="tab-tools" class="tab-panel">
+        <div class="tool-grid">
+          <button class="tool" data-tool="measure"><b>📏 Medir caminho</b><span>Distância acumulada manual</span></button>
+          <button class="tool" data-tool="marker"><b>📌 Marcador</b><span>Nome + observação</span></button>
+          <button class="tool" data-tool="trace"><b>〰️ Novo traçado</b><span>Linha com vários pontos</span></button>
+          <button class="tool" data-tool="area"><b>▱ Área</b><span>Polígono + área</span></button>
+          <button class="tool" data-tool="circle"><b>◯ Círculo</b><span>Raio, circunferência e área</span></button>
+        </div>
+        <div class="tool-help" id="toolHelp">Escolha uma ferramenta e toque no mapa.</div>
+        <div class="tool-actions">
+          <button id="undoPoint" class="btn secondary" disabled>Desfazer ponto</button>
+          <button id="finishTool" class="btn primary" disabled>Finalizar</button>
+          <button id="cancelTool" class="btn danger" disabled>Cancelar</button>
+        </div>
+        <div id="measurePanel" class="measure-panel hidden">
+          <div class="measure-head-row"><span id="measureLabel">Distância acumulada</span><select id="measureUnit"><option value="auto">m / km</option><option value="m">Metros</option><option value="km">Quilômetros</option><option value="ft">Pés</option><option value="mi">Milhas</option></select></div>
+          <b id="measureValue">0 m</b>
+          <div><button id="saveMeasurement" class="btn secondary" disabled>Salvar medição</button><button id="clearMeasurement" class="btn secondary">Limpar</button></div>
+          <div class="measure-destination-actions">
+            <button id="setMeasuredTarget" class="btn primary" disabled>📍 Usar ponto final como destino</button>
+            <button id="shareMeasuredTarget" class="btn secondary" disabled>📤 Compartilhar localização</button>
+            <button id="navigateMeasuredTarget" class="btn secondary" disabled>🚗 Navegar até o ponto</button>
+            <button id="openMeasuredTargetMaps" class="btn secondary" disabled>🗺 Abrir no Maps</button>
+            <button id="clearMeasuredTarget" class="btn danger" disabled>🗑 Remover destino</button>
+          </div>
+          <div id="measuredTargetInfo" class="measure-target-info hidden"></div>
+        </div>
+        <div class="panel-block export-box">
+          <button id="exportKml" class="btn secondary full">Exportar meus desenhos KML</button>
+          <button id="exportKmz" class="btn secondary full">Exportar meus desenhos KMZ</button>
+        </div>
+      </section>
+      <section id="tab-projects" class="tab-panel">
+        <div class="project-toolbar">
+          <button id="newProject" class="btn primary full" type="button">＋ Novo projeto KMZ</button>
+          <select id="projectSelect" class="select full"></select>
+          <div class="project-toolbar-row">
+            <button id="newProjectFolder" class="btn secondary" type="button">📁 Nova pasta</button>
+            <button id="renameProject" class="btn secondary" type="button">Renomear</button>
+            <button id="deleteProject" class="btn danger" type="button">Excluir projeto</button>
+          </div>
+        </div>
+        <div class="project-info" id="projectInfo"></div>
+        <label class="project-preview-toggle"><input id="projectPreview" type="checkbox" checked> Visualizar projeto no mapa</label>
+        <div id="projectTree" class="project-tree empty">Crie um projeto para montar um novo KMZ.</div>
+        <div class="project-actions">
+          <button id="addSelectedToProject" class="btn secondary full" type="button">＋ Adicionar item selecionado ao projeto</button>
+          <button id="addDrawingToProject" class="btn secondary full" type="button">＋ Adicionar desenho salvo ao projeto</button>
+          <button id="exportProjectKml" class="btn secondary full" type="button">Exportar projeto KML</button>
+          <button id="exportProjectKmz" class="btn primary full" type="button">Exportar projeto KMZ</button>
+        </div>
+        <div class="project-warning">
+          <b>Original protegido</b>
+          <span>Remover um item do projeto não apaga o arquivo de origem. A exclusão da biblioteca apenas remove o arquivo carregado da Navegação.</span>
+        </div>
+      </section>
+    </aside>
+    <main class="map-wrap">
+      <div id="map"></div>
+      <div id="gpsHud" class="gps-hud hidden">
+        <div><span>Velocidade</span><b id="gpsSpeed">0 km/h</b></div>
+        <div><span>Precisão</span><b id="gpsAccuracy">--</b></div>
+        <div><span>Coordenadas</span><b id="gpsCoords">--</b></div>
+      </div>
+      <div id="driveSearchPanel" class="drive-search-panel hidden">
+        <div class="drive-search-row">
+          <input id="driveSearchInput" type="search" placeholder="Para onde? Endereço, ponto, CEO, site ou coordenadas">
+          <button id="driveSearchBtn" type="button">Buscar</button>
+        </div>
+        <div class="drive-quick-actions">
+          <button id="driveMeasuredTarget" type="button">📍 Destino medido</button>
+          <button id="drivePickMap" type="button">✚ Escolher no mapa</button>
+        </div>
+        <div id="driveRecent" class="drive-recent hidden"></div>
+        <div id="driveSearchResults" class="drive-search-results hidden"></div>
+      </div>
+      <div id="targetHud" class="target-hud hidden">
+        <span id="targetTitle">DESTINO</span>
+        <b id="targetDistance">--</b>
+        <small id="targetRouteInfo">Calculando rota...</small>
+        <strong id="targetInstruction" class="target-instruction">--</strong>
+        <small id="targetCoords">--</small>
+        <div class="target-nav-actions">
+          <button id="changeTargetNavigation" type="button">Alterar destino</button>
+          <button id="navVoiceToggle" type="button">🔊 Voz</button>
+          <button id="shareTargetNavigation" type="button">↗ Compartilhar</button>
+          <button id="openTargetMaps" type="button">↗ Maps</button>
+          <button id="stopTargetNavigation" type="button">Encerrar navegação</button>
+        </div>
+      </div>
+      <div id="coordHud" class="coord-hud"><span id="coordHudText">--</span><button id="copyCoordHud" type="button" title="Copiar coordenadas">⧉</button></div>
+      <div class="map-actions">
+        <button id="centerGps" title="Centralizar GPS">◎</button>
+        <button id="toggleSidebar" title="Camadas">☰</button>
+      </div>
+      <div id="statusBar" class="statusbar">Pronto. Carregue um KMZ/KML ou crie um desenho.</div>
+    </main>
+  </div>
+  <nav id="mobileNav" class="mobile-nav" aria-label="Navegação mobile">
+    <button type="button" data-mobile-tab="layers" class="active"><span>▱</span><b>Camadas</b></button>
+    <button type="button" data-mobile-tab="tools"><span>✦</span><b>Ferramentas</b></button>
+    <button type="button" data-mobile-tab="projects"><span>⌂</span><b>Projetos</b></button>
+    <button type="button" data-mobile-action="drive"><span>➤</span><b>Navegar</b></button>
+  </nav>
+</div>
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head"><h3 id="modalTitle">Salvar</h3><button id="closeModal">×</button></div>
+    <form id="editForm">
+      <label>Nome<input id="editName" required maxlength="100"></label>
+      <label>Observação<textarea id="editNote" rows="4" maxlength="600"></textarea></label>
+      <div id="markerPositionFields" class="marker-position-fields hidden">
+        <label>Latitude<input id="editLat" inputmode="decimal" placeholder="-25.000000"></label>
+        <label>Longitude<input id="editLng" inputmode="decimal" placeholder="-49.000000"></label>
+      </div>
+      <div id="markerStylePanel" class="marker-style-panel hidden">
+        <div class="style-title"><b>Ícone do ponto</b><span>Escolha um símbolo, cor, tamanho e opacidade.</span></div>
+        <div id="iconPalette" class="icon-palette">
+          <button type="button" data-icon="original" title="Símbolo original">○</button>
+          <button type="button" data-icon="pin" title="Pino">📍</button>
+          <button type="button" data-icon="circle" title="Círculo">●</button>
+          <button type="button" data-icon="flag" title="Bandeira">⚑</button>
+          <button type="button" data-icon="star" title="Estrela">★</button>
+          <button type="button" data-icon="alert" title="Alerta">⚠</button>
+          <button type="button" data-icon="check" title="Conferido">✓</button>
+          <button type="button" data-icon="tool" title="Ponto técnico">◆</button>
+          <button type="button" data-icon="home" title="Base / local">⌂</button>
+          <button type="button" data-icon="car" title="Veículo">🚗</button>
+          <button type="button" data-icon="truck" title="Veículo pesado">🚚</button>
+          <button type="button" data-icon="person" title="Pessoa">●</button>
+          <button type="button" data-icon="camera" title="Foto / câmera">◉</button>
+          <button type="button" data-icon="info" title="Informação">i</button>
+          <button type="button" data-icon="question" title="Dúvida">?</button>
+          <button type="button" data-icon="danger" title="Risco">!</button>
+          <button type="button" data-icon="target" title="Alvo">◎</button>
+          <button type="button" data-icon="square" title="Quadrado">■</button>
+          <button type="button" data-icon="diamond" title="Losango">◆</button>
+        </div>
+        <input id="editIcon" type="hidden" value="pin">
+        <div class="marker-style-controls">
+          <label>Cor<input id="editColor" type="color" value="#1688ff"></label>
+          <label>Tamanho <span id="scaleValue">1,0×</span><input id="editScale" type="range" min="0.7" max="2" step="0.1" value="1"></label>
+          <label>Opacidade <span id="opacityValue">100%</span><input id="editOpacity" type="range" min="20" max="100" step="5" value="100"></label>
+        </div>
+      </div>
+      <div id="lineStylePanel" class="line-style-panel">
+        <label>Cor<input id="editColorLine" type="color" value="#ff3b30"></label>
+        <label>Espessura <span id="lineWidthValue">4 px</span><input id="editLineWidth" type="range" min="1" max="12" step="1" value="4"></label>
+        <label>Opacidade <span id="lineOpacityValue">100%</span><input id="editLineOpacity" type="range" min="20" max="100" step="5" value="100"></label>
+      </div>
+      <div class="modal-actions"><button type="button" id="modalCancel" class="btn secondary">Cancelar</button><button type="submit" class="btn primary">Salvar</button></div>
+    </form>
+  </div>
+</div>
+<script src="./vendor/leaflet/leaflet.js"></script>
+<script src="./vendor/jszip.min.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

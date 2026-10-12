@@ -411,3 +411,22 @@ button,a,input,textarea,select{-webkit-tap-highlight-color:transparent}button{cu
 .cluster-manager-grid form{display:grid;gap:10px;margin-top:12px}
 #companyMasterRegister .signup-success,#companyMasterRecover .signup-success{margin-top:14px}
 @media(max-width:760px){.cluster-manager-grid{grid-template-columns:1fr}.master-cluster-gate{padding:7px}.master-cluster-card{padding:14px 10px}}
+
+/* ===== GEOFOTO NAVEGACAO INTEGRADA v1.8.0 ===== */
+.navigation-section{padding:0;margin:0}
+.navigation-frame{display:block;width:100%;height:calc(100vh - 150px);min-height:620px;border:0;border-radius:14px;background:#03121f}
+body.navigation-mode{overflow:hidden}
+body.navigation-mode .shell{display:block!important}
+body.navigation-mode .side,
+body.navigation-mode .main>.top,
+body.navigation-mode #cloudDemoBar,
+body.navigation-mode #appBrandBanner{display:none!important}
+body.navigation-mode .main{width:100%!important;max-width:none!important;height:100vh!important;padding:0!important;margin:0!important}
+body.navigation-mode .navigation-section.active{display:block!important;width:100%;height:100vh}
+body.navigation-mode .navigation-frame{width:100%;height:100vh;min-height:0;border-radius:0}
+@media(max-width:850px){
+ .nav{grid-template-columns:repeat(7,minmax(0,1fr))}
+ .nav button{font-size:8px!important}
+ body.navigation-mode .main{padding:0!important}
+ body.navigation-mode .navigation-frame{height:100dvh}
+}
