@@ -12,8 +12,13 @@ const PROJECT_ACTIVE_STORE='geofoto_nav_proto_project_active_v1';
 const PROJECT_TS_STORE='geofoto_nav_proto_project_ts_v1';
 const PROJECT_DB_NAME='geofoto_nav_proto_storage_v1';
 const PROJECT_DB_OBJECT='state';
+const OFFLINE_FILE_DB_OBJECT='files';
+const OFFLINE_MAP_DB_OBJECT='offlineMaps';
+const OFFLINE_ROUTE_DB_OBJECT='routes';
+const OFFLINE_ACTIVE_MAP_KEY='active';
 const NAV_RECENT_STORE='geofoto_nav_proto_recent_destinations_v1';
 const NAV_VOICE_STORE='geofoto_nav_proto_voice_v1';
+function navApiHeaders(){const t=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'';return t?{Authorization:'Bearer '+t}:{}}
 const map = L.map('map', {zoomControl:true, preferCanvas:true,maxZoom:22}).setView([-25.43,-49.27], 12);
 map.createPane('kmlLinePane');map.getPane('kmlLinePane').style.zIndex='410';
 map.createPane('kmlPointPane');map.getPane('kmlPointPane').style.zIndex='640';
@@ -22,8 +27,8 @@ map.createPane('projectPane');map.getPane('projectPane').style.zIndex='560';
 const kmlCanvas = L.canvas({padding:.5,tolerance:7,pane:'kmlLinePane'});
 const kmlPointCanvas = L.canvas({padding:.7,tolerance:14,pane:'kmlPointPane'});
 
-const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom:22,maxNativeZoom:19,attribution:'&copy; OpenStreetMap'
+const street = L.tileLayer('/api/tile/{z}/{x}/{y}.png', {
+  maxZoom:22,maxNativeZoom:19,attribution:'&copy; OpenStreetMap contributors'
 });
 const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
   maxZoom:22,maxNativeZoom:18,attribution:'Tiles &copy; Esri'
@@ -37,6 +42,9 @@ const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
 const hybrid = L.layerGroup([satellite, labels]);
 const bases = {street, satellite, hybrid, topo};
 let activeBase = satellite.addTo(map);
+let offlineBaseLayer=null;
+let offlineMapRecord=null;
+let offlineMapHeader=null;
 L.control.scale({imperial:false,metric:true,position:'bottomright',maxWidth:140}).addTo(map);
 
 let documents = [];
@@ -218,7 +226,7 @@ function mapsSearchLink(lat,lng){return 'https://www.google.com/maps/search/?api
 function streetViewLink(lat,lng){return 'https://www.google.com/maps/@?api=1&map_action=pano&viewpoint='+encodeURIComponent(lat+','+lng)}
 async function fetchElevation(lat,lng){
   const u='/api/elevation?latitude='+encodeURIComponent(lat)+'&longitude='+encodeURIComponent(lng);
-  const r=await fetch(u,{cache:'no-store'});if(!r.ok)throw new Error('elevação indisponível');
+  const r=await fetch(u,{cache:'no-store',headers:navApiHeaders()});if(!r.ok)throw new Error('elevação indisponível');
   const d=await r.json();const v=Array.isArray(d?.elevation)?Number(d.elevation[0]):Number(d?.elevation);
   if(!Number.isFinite(v))throw new Error('elevação indisponível');return v;
 }
@@ -238,7 +246,7 @@ async function showElevationProfile(coords,name='Traçado'){
   const panel=document.createElement('div');panel.className='elevation-panel';panel.innerHTML='<div class="elev-head"><div><span>PERFIL DE ELEVAÇÃO</span><h3>'+esc(name)+'</h3></div><button type="button">×</button></div><div class="elev-loading">Carregando elevação...</div>';document.querySelector('.map-wrap').appendChild(panel);panel.querySelector('button').onclick=()=>panel.remove();
   try{
     const pts=sampleLine(coords,50),lats=pts.map(p=>p[0].toFixed(6)).join(','),lngs=pts.map(p=>p[1].toFixed(6)).join(',');
-    const r=await fetch('/api/elevation?latitude='+encodeURIComponent(lats)+'&longitude='+encodeURIComponent(lngs),{cache:'no-store'});
+    const r=await fetch('/api/elevation?latitude='+encodeURIComponent(lats)+'&longitude='+encodeURIComponent(lngs),{cache:'no-store',headers:navApiHeaders()});
     if(!r.ok)throw new Error();const d=await r.json(),e=(d.elevation||[]).map(Number).filter(Number.isFinite);if(e.length<2)throw new Error();
     const min=Math.min(...e),max=Math.max(...e),range=Math.max(1,max-min),w=600,h=170,pad=18;
     const points=e.map((v,i)=>[(pad+(w-pad*2)*i/(e.length-1)),(h-pad-(h-pad*2)*(v-min)/range)]);
@@ -580,20 +588,26 @@ async function readKmlFile(file){
   const rootEl=xml.querySelector('kml > Document, kml > Folder')||xml.documentElement;
   const root=parseContainer(rootEl,styles,file.name);
   root.name=file.name;root.expanded=false;
-  return {id:uid('doc'),name:file.name,root,count:allPlacemarks(root).length};
+  return {id:uid('doc'),name:file.name,root,count:allPlacemarks(root).length,persistKey:offlineFileKey(file)};
 }
-async function loadFiles(files){
+async function loadFiles(files,opt={}){
+  const persist=opt.persist!==false,fit=opt.fit!==false;
   for(const file of files){
     status('Lendo '+file.name+'...');
     try{
       const doc=await readKmlFile(file);
+      if(documents.some(d=>d.persistKey===doc.persistKey)){status(file.name+' já está carregado.');continue}
       documents.push(doc);
       indexDocument(doc);
       renderLayerTree();
-      const b=nodeBounds(doc.root); if(b) map.fitBounds(b.pad(.08));
+      const b=nodeBounds(doc.root); if(fit&&b) map.fitBounds(b.pad(.08));
       await addDocumentToMap(doc);
+      if(persist){
+        try{await saveOfflineSourceFile(file,doc.persistKey)}
+        catch(e){console.warn('Arquivo carregado, mas não foi possível mantê-lo offline.',e)}
+      }
       const total=doc.count||0;
-      status(file.name+' carregado com '+total.toLocaleString('pt-BR')+' elementos.');
+      status(file.name+' carregado com '+total.toLocaleString('pt-BR')+' elementos'+(persist?' · salvo offline':'')+'.');
     }catch(e){ alert('Erro em '+file.name+': '+e.message); }
   }
   renderLayerTree();
@@ -663,7 +677,7 @@ function renderLayerTree(){
     head.onclick=e=>{if(e.target.closest('button,input'))return;focusImportedFolder(doc.root)};
     head.querySelector('.project').onclick=e=>{e.stopPropagation();document.querySelector('[data-tab="projects"]')?.click();addImportedTreeToProject(doc.root)};
     head.querySelector('.opacity').onclick=e=>{e.stopPropagation();const raw=prompt('Opacidade de "'+doc.name+'" (5 a 100%):',String(Math.round((doc.opacity??1)*100)));if(raw===null)return;const v=Math.max(5,Math.min(100,Number(raw)||100));setDocumentOpacity(doc,v/100)};
-    head.querySelector('.delete').onclick=()=>{if(confirm('Excluir "'+doc.name+'" da biblioteca carregada da Navegação?\n\nO arquivo original do seu computador NÃO será apagado.')){removeNodeLayers(doc.root);documents=documents.filter(x=>x!==doc);removeDocumentFromIndex(doc.id);renderLayerTree();renderSearchResults();status(doc.name+' removido da biblioteca carregada.')}};
+    head.querySelector('.delete').onclick=async()=>{if(confirm('Excluir "'+doc.name+'" da biblioteca offline da Navegação?\n\nO arquivo original do seu computador NÃO será apagado.')){removeNodeLayers(doc.root);documents=documents.filter(x=>x!==doc);removeDocumentFromIndex(doc.id);await deleteOfflineSourceFile(doc.persistKey);renderLayerTree();renderSearchResults();status(doc.name+' removido da biblioteca offline.')}};
     if(doc.root.expanded)(doc.root.children||[]).forEach(x=>appendNode(x,box,1));
   });
   $('#layerCount').textContent=documents.reduce((n,d)=>n+Number(d.count||0),0).toLocaleString('pt-BR')+' itens';
@@ -968,8 +982,14 @@ function loadActiveProjectId(list=projects){
 function openProjectDb(){
   return new Promise((resolve,reject)=>{
     if(!('indexedDB' in window)){reject(new Error('IndexedDB indisponível'));return}
-    const req=indexedDB.open(PROJECT_DB_NAME,1);
-    req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains(PROJECT_DB_OBJECT))db.createObjectStore(PROJECT_DB_OBJECT,{keyPath:'key'})};
+    const req=indexedDB.open(PROJECT_DB_NAME,2);
+    req.onupgradeneeded=()=>{
+      const db=req.result;
+      if(!db.objectStoreNames.contains(PROJECT_DB_OBJECT))db.createObjectStore(PROJECT_DB_OBJECT,{keyPath:'key'});
+      if(!db.objectStoreNames.contains(OFFLINE_FILE_DB_OBJECT))db.createObjectStore(OFFLINE_FILE_DB_OBJECT,{keyPath:'key'});
+      if(!db.objectStoreNames.contains(OFFLINE_MAP_DB_OBJECT))db.createObjectStore(OFFLINE_MAP_DB_OBJECT,{keyPath:'key'});
+      if(!db.objectStoreNames.contains(OFFLINE_ROUTE_DB_OBJECT))db.createObjectStore(OFFLINE_ROUTE_DB_OBJECT,{keyPath:'key'});
+    };
     req.onsuccess=()=>resolve(req.result);
     req.onerror=()=>reject(req.error||new Error('Falha ao abrir armazenamento local'));
   });
@@ -1023,6 +1043,180 @@ async function hydrateProjectsDb(){
     console.warn('IndexedDB de projetos indisponível; mantendo armazenamento atual.',e);
   }
 }
+
+async function navDbPut(store,value){
+  const db=await openProjectDb();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(store,'readwrite');tx.objectStore(store).put(value);
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Falha ao salvar dados offline'));
+  });
+  db.close();
+}
+async function navDbGet(store,key){
+  const db=await openProjectDb();
+  const value=await new Promise((resolve,reject)=>{
+    const tx=db.transaction(store,'readonly'),req=tx.objectStore(store).get(key);
+    req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error||new Error('Falha ao ler dados offline'));
+  });
+  db.close();return value;
+}
+async function navDbGetAll(store){
+  const db=await openProjectDb();
+  const value=await new Promise((resolve,reject)=>{
+    const tx=db.transaction(store,'readonly'),req=tx.objectStore(store).getAll();
+    req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error||new Error('Falha ao ler dados offline'));
+  });
+  db.close();return value;
+}
+async function navDbDelete(store,key){
+  const db=await openProjectDb();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(store,'readwrite');tx.objectStore(store).delete(key);
+    tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Falha ao remover dados offline'));
+  });
+  db.close();
+}
+function offlineFileKey(file){
+  return String(file?.name||'arquivo')+'::'+Number(file?.size||0)+'::'+Number(file?.lastModified||0);
+}
+async function requestNavPersistentStorage(){
+  try{if(navigator.storage?.persist)await navigator.storage.persist()}catch{}
+}
+async function storageRoomFor(bytes){
+  try{
+    const est=await navigator.storage?.estimate?.();if(!est?.quota)return true;
+    return Number(bytes||0)<Math.max(0,(est.quota-(est.usage||0))*.92);
+  }catch{return true}
+}
+async function saveOfflineSourceFile(file,key=offlineFileKey(file)){
+  if(!file)return;
+  await requestNavPersistentStorage();
+  if(!(await storageRoomFor(file.size)))throw new Error('Sem espaço suficiente no aparelho para manter este arquivo offline.');
+  await navDbPut(OFFLINE_FILE_DB_OBJECT,{key,name:file.name,type:file.type||'',size:file.size,lastModified:file.lastModified||Date.now(),blob:file,savedAt:Date.now()});
+}
+async function deleteOfflineSourceFile(key){if(key)await navDbDelete(OFFLINE_FILE_DB_OBJECT,key).catch(()=>{})}
+async function hydrateOfflineDocuments(){
+  try{
+    const rows=await navDbGetAll(OFFLINE_FILE_DB_OBJECT);
+    if(!rows.length)return;
+    status('Restaurando '+rows.length+' arquivo(s) KMZ/KML offline...');
+    const files=rows.map(r=>new File([r.blob],r.name,{type:r.type||'',lastModified:r.lastModified||Date.now()}));
+    await loadFiles(files,{persist:false,fit:false,restoring:true});
+    status(rows.length+' arquivo(s) KMZ/KML restaurado(s) do aparelho.');
+  }catch(e){console.warn('Falha ao restaurar KMZ/KML offline.',e)}
+}
+function ensureOfflineOption(){
+  for(const id of ['baseMap','mobileBaseMap']){
+    const s=$('#'+id);if(!s)continue;
+    let o=[...s.options].find(x=>x.value==='offline');
+    if(!o){o=document.createElement('option');o.value='offline';o.textContent='Offline';s.appendChild(o)}
+  }
+}
+function removeOfflineOption(){
+  for(const id of ['baseMap','mobileBaseMap'])$('#'+id)?.querySelector('option[value="offline"]')?.remove();
+}
+function offlineMapSizeLabel(bytes){
+  bytes=Number(bytes)||0;if(bytes>=1073741824)return (bytes/1073741824).toFixed(1)+' GB';
+  if(bytes>=1048576)return (bytes/1048576).toFixed(0)+' MB';
+  return (bytes/1024).toFixed(0)+' KB';
+}
+function paintOfflineStatus(){
+  const badge=$('#offlineStateBadge'),info=$('#offlineMapInfo'),use=$('#useOfflineMap'),remove=$('#removeOfflineMap');
+  if(badge){badge.textContent=navigator.onLine?'Online · offline pronto':'OFFLINE';badge.classList.toggle('is-offline',!navigator.onLine)}
+  if(offlineMapRecord){
+    const storageText=offlineMapRecord.persisted===false?'aberto apenas nesta sessão':'salvo neste aparelho';
+    if(info)info.innerHTML='<b>'+esc(offlineMapRecord.name)+'</b><span>'+offlineMapSizeLabel(offlineMapRecord.size)+' · '+storageText+'</span>';
+    if(use)use.disabled=false;if(remove)remove.disabled=false;
+  }else{
+    if(info)info.textContent='Nenhum pacote de mapa offline instalado. O mapa de ruas mantém apenas áreas já visualizadas.';
+    if(use)use.disabled=true;if(remove)remove.disabled=true;
+  }
+}
+async function buildOfflineLayer(file){
+  if(!window.pmtiles)throw new Error('Leitor de mapas offline indisponível.');
+  const source=new pmtiles.FileSource(file),archive=new pmtiles.PMTiles(source),header=await archive.getHeader();
+  let layer;
+  if(Number(header.tileType)===1){
+    if(!window.protomapsL)throw new Error('Renderizador vetorial offline indisponível.');
+    layer=protomapsL.leafletLayer({url:archive,flavor:'light',lang:'pt',attribution:'© OpenStreetMap contributors · Protomaps',maxZoom:22,maxDataZoom:header.maxZoom});
+  }else{
+    layer=pmtiles.leafletRasterLayer(archive,{attribution:'Mapa offline',maxZoom:22,maxNativeZoom:header.maxZoom});
+  }
+  return {layer,header};
+}
+async function activateOfflineMapRecord(record,fit=false){
+  if(!record?.blob)return false;
+  const file=new File([record.blob],record.name,{type:'application/octet-stream',lastModified:record.savedAt||Date.now()});
+  const built=await buildOfflineLayer(file);
+  if(offlineBaseLayer&&map.hasLayer(offlineBaseLayer))map.removeLayer(offlineBaseLayer);
+  offlineBaseLayer=built.layer;offlineMapHeader=built.header;offlineMapRecord=record;bases.offline=offlineBaseLayer;ensureOfflineOption();paintOfflineStatus();
+  if(fit&&Number.isFinite(built.header.minLat))map.fitBounds([[built.header.minLat,built.header.minLon],[built.header.maxLat,built.header.maxLon]],{maxZoom:12});
+  return true;
+}
+async function installOfflineMap(file){
+  if(!file||!file.name.toLowerCase().endsWith('.pmtiles'))return alert('Selecione um arquivo .pmtiles.');
+  status('Validando mapa offline '+file.name+'...');
+  try{
+    const built=await buildOfflineLayer(file);
+    await requestNavPersistentStorage();
+    let persisted=false;
+    if(await storageRoomFor(file.size)){
+      await navDbPut(OFFLINE_MAP_DB_OBJECT,{key:OFFLINE_ACTIVE_MAP_KEY,name:file.name,size:file.size,blob:file,savedAt:Date.now(),header:built.header});
+      persisted=true;
+    }
+    if(offlineBaseLayer&&map.hasLayer(offlineBaseLayer))map.removeLayer(offlineBaseLayer);
+    offlineBaseLayer=built.layer;offlineMapHeader=built.header;
+    offlineMapRecord={key:OFFLINE_ACTIVE_MAP_KEY,name:file.name,size:file.size,blob:file,savedAt:Date.now(),header:built.header,persisted};
+    bases.offline=offlineBaseLayer;ensureOfflineOption();paintOfflineStatus();changeBaseMap('offline');
+    map.fitBounds([[built.header.minLat,built.header.minLon],[built.header.maxLat,built.header.maxLon]],{maxZoom:12});
+    status(persisted?'Mapa offline instalado e salvo neste aparelho.':'Mapa aberto, mas sem espaço para salvar permanentemente.');
+  }catch(e){alert('Não foi possível instalar o mapa offline: '+e.message);status('Falha ao instalar mapa offline.')}
+}
+async function hydrateOfflineMap(){
+  try{
+    const record=await navDbGet(OFFLINE_MAP_DB_OBJECT,OFFLINE_ACTIVE_MAP_KEY);if(!record)return paintOfflineStatus();
+    await activateOfflineMapRecord(record,false);
+    if(!navigator.onLine)changeBaseMap('offline');
+  }catch(e){console.warn('Falha ao restaurar mapa offline.',e);paintOfflineStatus()}
+}
+async function removeInstalledOfflineMap(){
+  if(!offlineMapRecord)return;
+  if(!confirm('Remover o mapa offline "'+offlineMapRecord.name+'" deste aparelho?\n\nSeus KMZ/KML e projetos não serão apagados.'))return;
+  if(offlineBaseLayer&&map.hasLayer(offlineBaseLayer)){map.removeLayer(offlineBaseLayer);activeBase=street;street.addTo(map)}
+  delete bases.offline;offlineBaseLayer=null;offlineMapRecord=null;offlineMapHeader=null;removeOfflineOption();
+  await navDbDelete(OFFLINE_MAP_DB_OBJECT,OFFLINE_ACTIVE_MAP_KEY).catch(()=>{});
+  $('#baseMap').value='street';if($('#mobileBaseMap'))$('#mobileBaseMap').value='street';paintOfflineStatus();status('Mapa offline removido do aparelho.');
+}
+function offlineRouteKey(target=measuredTarget){
+  if(!target)return '';return 'route:'+Number(target.lat).toFixed(5)+','+Number(target.lng).toFixed(5);
+}
+async function saveCurrentRouteOffline(){
+  if(!measuredTarget||!measuredRouteCoords?.length)return;
+  const key=offlineRouteKey(),payload={key,target:{lat:measuredTarget.lat,lng:measuredTarget.lng,name:measuredTarget.name,source:measuredTarget.source},coords:measuredRouteCoords,steps:measuredRouteSteps,distance:measuredRouteDistance,duration:measuredRouteDuration,startSnap:measuredRouteStartSnap,endSnap:measuredRouteEndSnap,finalApproach:measuredFinalApproachDistance,savedAt:Date.now()};
+  await navDbPut(OFFLINE_ROUTE_DB_OBJECT,payload).catch(()=>{});
+}
+async function restoreRouteOfflineForTarget(){
+  const key=offlineRouteKey();if(!key||!gpsLatLng)return false;
+  const saved=await navDbGet(OFFLINE_ROUTE_DB_OBJECT,key).catch(()=>null);if(!saved?.coords?.length)return false;
+  let near=Infinity;
+  for(let i=0;i<saved.coords.length;i+=Math.max(1,Math.floor(saved.coords.length/500)))near=Math.min(near,L.latLng(gpsLatLng).distanceTo(L.latLng(saved.coords[i])));
+  if(near>3000)return false;
+  measuredRouteCoords=saved.coords;measuredRouteSteps=saved.steps||[];measuredRouteDistance=Number(saved.distance)||null;measuredRouteDuration=Number(saved.duration)||null;
+  measuredRouteStartSnap=saved.startSnap||saved.coords[0];measuredRouteEndSnap=saved.endSnap||saved.coords[saved.coords.length-1];measuredFinalApproachDistance=Number(saved.finalApproach)||0;
+  lastRouteProgressIndex=0;buildRouteStepIndexes();const prog=routeProgressInfo();updateRouteVisual(prog);updateRouteInstruction(prog);
+  $('#targetRouteInfo').textContent='Rota salva offline · '+(measuredRouteDuration?formatDuration(measuredRouteDuration):'');
+  status('Usando rota salva no aparelho. Sem internet, o recálculo viário fica indisponível.');
+  return true;
+}
+function handleNavigationConnectivity(){
+  paintOfflineStatus();
+  if(!navigator.onLine){
+    if(offlineBaseLayer)changeBaseMap('offline');
+    else if(activeBase!==street)changeBaseMap('street');
+    status(offlineMapRecord?'Offline: mapa e KMZ locais disponíveis.':'Offline: KMZ locais disponíveis; mapa limitado às áreas já visualizadas.');
+  }
+}
+
 function activeProject(){return projects.find(p=>p.id===activeProjectId)||null}
 function makeProject(name){
   return {id:uid('prj'),name:String(name||'Novo projeto KMZ').trim()||'Novo projeto KMZ',createdAt:new Date().toISOString(),root:{id:uid('pf'),type:'folder',name:'Projeto',expanded:true,children:[]}};
@@ -1921,7 +2115,7 @@ async function searchDriveDestination(){
   if(results.length)renderDriveResultList(results,input,seq);
   try{
     const bias=gpsLatLng?'&lat='+gpsLatLng[0]+'&lon='+gpsLatLng[1]:'';
-    const res=await fetch('/api/geocode?limit=6&q='+encodeURIComponent(raw)+bias,{cache:'no-store'});
+    const res=await fetch('/api/geocode?limit=6&q='+encodeURIComponent(raw)+bias,{cache:'no-store',headers:navApiHeaders()});
     if(res.ok){
       const data=await res.json();
       for(const f of data?.features||[]){
@@ -1943,7 +2137,7 @@ function useLastMeasuredTarget(){
 }
 async function reverseDestinationName(lat,lng){
   try{
-    const res=await fetch('/api/reverse?lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lng),{cache:'no-store'});
+    const res=await fetch('/api/reverse?lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lng),{cache:'no-store',headers:navApiHeaders()});
     if(!res.ok)return '';
     const data=await res.json(),f=data?.features?.[0],p=f?.properties||{};
     return [p.name,p.street,p.city,p.state].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' · ');
@@ -2095,7 +2289,7 @@ async function requestMeasuredRoadRoute(force=false){
   $('#targetRouteInfo').textContent='Calculando rota pelas ruas...';
   try{
     const url='/api/route?fromLat='+encodeURIComponent(gpsLatLng[0])+'&fromLng='+encodeURIComponent(gpsLatLng[1])+'&toLat='+encodeURIComponent(measuredTarget.lat)+'&toLng='+encodeURIComponent(measuredTarget.lng);
-    const res=await fetch(url,{cache:'no-store'});
+    const res=await fetch(url,{cache:'no-store',headers:navApiHeaders()});
     if(!res.ok)throw new Error('rota indisponível');
     const data=await res.json(),route=data?.routes?.[0];
     if(!route?.geometry?.coordinates?.length)throw new Error('rota não encontrada');
@@ -2119,6 +2313,7 @@ async function requestMeasuredRoadRoute(force=false){
     $('#targetDistance').textContent=prog?.remaining?fmtDistance(prog.remaining):measuredRouteDistance?fmtDistance(measuredRouteDistance):'--';
     $('#targetRouteInfo').textContent=routeInfoText(measuredRouteDistance,measuredRouteDuration);
     updateRouteInstruction(prog);
+    saveCurrentRouteOffline();
   }catch(e){
     measuredRouteRetryAt=Date.now()+15000;
     if(measuredRouteCoords?.length>1){
@@ -2130,10 +2325,14 @@ async function requestMeasuredRoadRoute(force=false){
         updateRouteInstruction(prog);
       }
     }else{
-      clearMeasuredRoute();measuredRouteRetryAt=Date.now()+15000;
-      const direct=L.latLng(gpsLatLng).distanceTo(L.latLng(measuredTarget.lat,measuredTarget.lng));
-      $('#targetDistance').textContent=fmtDistance(direct);
-      $('#targetRouteInfo').textContent='Sem rota viária · distância em linha reta';$('#targetInstruction').textContent='Abra no Maps para uma rota alternativa';
+      const restored=await restoreRouteOfflineForTarget();
+      if(!restored){
+        clearMeasuredRoute();measuredRouteRetryAt=Date.now()+15000;
+        const direct=L.latLng(gpsLatLng).distanceTo(L.latLng(measuredTarget.lat,measuredTarget.lng));
+        $('#targetDistance').textContent=fmtDistance(direct);
+        $('#targetRouteInfo').textContent=navigator.onLine?'Sem rota viária · distância em linha reta':'Offline · sem rota salva para este destino';
+        $('#targetInstruction').textContent=navigator.onLine?'Abra no Maps para uma rota alternativa':'GPS e KMZ continuam funcionando offline';
+      }
     }
   }finally{measuredRouteLoading=false}
 }
@@ -2224,7 +2423,11 @@ function startMeasuredNavigation(){
   syncMobileNav();updateNavVoiceButtons();rememberRecentDestination(measuredTarget);requestNavWakeLock();
   measuredRouteLastFrom=null;measuredRouteLastAt=0;clearMeasuredRoute();
   if(watchId===null)startGps();
-  if(gpsLatLng){map.setView(gpsLatLng,17,{animate:true});requestMeasuredRoadRoute(true)}
+  if(gpsLatLng){
+    map.setView(gpsLatLng,17,{animate:true});
+    if(navigator.onLine)requestMeasuredRoadRoute(true);
+    else restoreRouteOfflineForTarget().then(ok=>{if(!ok)updateMeasuredNavigation()});
+  }
   updateMeasuredNavigation();
   status('Navegação iniciada para '+(measuredTarget.name||'o destino')+'.');
 }
@@ -2404,6 +2607,9 @@ $('#modalCancel').onclick=closeModal;$('#closeModal').onclick=closeModal;
 $('#modal').onclick=e=>{if(e.target===$('#modal'))closeModal()};
 
 $('#fileInput').onchange=async e=>{await loadFiles([...e.target.files]);e.target.value=''};
+$('#offlineMapInput').onchange=async e=>{const file=e.target.files?.[0];e.target.value='';if(file)await installOfflineMap(file)};
+$('#useOfflineMap').onclick=()=>{if(offlineBaseLayer)changeBaseMap('offline')};
+$('#removeOfflineMap').onclick=removeInstalledOfflineMap;
 $('#searchInput').oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(renderSearchResults,160)};
 $('#clearSearch').onclick=()=>{$('#searchInput').value='';renderSearchResults();$('#searchInput').focus()};
 function changeBaseMap(value){
@@ -2444,10 +2650,15 @@ map.getContainer().addEventListener('contextmenu',e=>e.preventDefault());
 setupMobileSheetDrag();
 window.addEventListener('resize',()=>{if(!isMobileUi())document.body.classList.remove('mobile-sheet-open');syncMobileNav();setTimeout(()=>map.invalidateSize(),80)});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&navigatingMeasuredTarget)requestNavWakeLock()});
+window.addEventListener('online',()=>{paintOfflineStatus();if(navigatingMeasuredTarget)requestMeasuredRoadRoute(true);status('Internet disponível. Navegação online restaurada.')});
+window.addEventListener('offline',handleNavigationConnectivity);
 if(EMBEDDED_NAV&&$('#backToGeoFoto'))$('#backToGeoFoto').onclick=()=>window.parent.postMessage({type:'geofoto:navigation:back'},location.origin);
 else $('#backToGeoFoto')?.remove();
 initIconPalette();renderAnnotations();renderLayerTree();renderProjects();syncMobileNav();updateNavVoiceButtons();renderRecentDestinations();hydrateProjectsDb();
+requestNavPersistentStorage();paintOfflineStatus();
+hydrateOfflineMap().then(()=>handleNavigationConnectivity());
+hydrateOfflineDocuments();
 if(isMobileUi())closeMobileSheet();
 setTimeout(()=>map.invalidateSize(),100);
-status('GeoFoto Navegação pronto. KMZ/KML são lidos localmente neste navegador.');
+status(navigator.onLine?'GeoFoto Navegação pronto. KMZ/KML serão mantidos offline neste aparelho.':'GeoFoto Navegação offline. Restaurando mapas e KMZ/KML locais...');
 })();

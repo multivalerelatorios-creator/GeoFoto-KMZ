@@ -55,9 +55,9 @@ export default {
    if(!m)return new Response('Tile invalido',{status:400})
    const z=Number(m[1]),x=Number(m[2]),y=Number(m[3])
    if(!Number.isInteger(z)||z<0||z>19||!Number.isInteger(x)||!Number.isInteger(y))return new Response('Tile invalido',{status:400})
-   const rr=await fetch('https://tile.openstreetmap.org/'+z+'/'+x+'/'+y+'.png',{headers:{'User-Agent':'GeoFoto-KMZ/1.2 (field mapping app)'}})
+   const rr=await fetch('https://tile.openstreetmap.org/'+z+'/'+x+'/'+y+'.png',{headers:{'User-Agent':'GeoFoto-KMZ/1.8 (+https://geofoto-kmz.geofotokmz.workers.dev/)'}})
    if(!rr.ok)return new Response('Tile indisponivel',{status:rr.status})
-   return new Response(rr.body,{headers:{'content-type':'image/png','cache-control':'public, max-age=86400'}})
+   return new Response(rr.body,{headers:{'content-type':'image/png','cache-control':'public, max-age=604800'}})
   }
   if(url.pathname==='/api/register-company'&&req.method==='POST'){
    const b=await req.json().catch(()=>({})),name=String(b.name||'').trim().replace(/\s+/g,' ')
@@ -168,6 +168,39 @@ export default {
   }
   if(url.pathname==='/api/export/kml'&&req.method==='GET')return exportKml(req,env,s)
   if(url.pathname==='/api/export/kmz'&&req.method==='GET')return exportKmz(req,env,s)
+
+  if(url.pathname==='/api/route'&&req.method==='GET'){
+   const fromLat=Number(url.searchParams.get('fromLat')),fromLng=Number(url.searchParams.get('fromLng')),toLat=Number(url.searchParams.get('toLat')),toLng=Number(url.searchParams.get('toLng'))
+   if(![fromLat,fromLng,toLat,toLng].every(Number.isFinite)||Math.abs(fromLat)>90||Math.abs(toLat)>90||Math.abs(fromLng)>180||Math.abs(toLng)>180)return json({error:'Coordenadas inválidas'},400)
+   const target='https://router.project-osrm.org/route/v1/driving/'+fromLng+','+fromLat+';'+toLng+','+toLat+'?overview=full&geometries=geojson&steps=true'
+   const rr=await fetch(target,{headers:{'User-Agent':'GeoFoto-KMZ/1.8 (+https://geofoto-kmz.geofotokmz.workers.dev/)'}}).catch(()=>null)
+   if(!rr?.ok)return json({error:'Serviço de rota indisponível'},rr?.status||503)
+   return new Response(rr.body,{headers:{'content-type':'application/json;charset=UTF-8','cache-control':'no-store'}})
+  }
+  if(url.pathname==='/api/geocode'&&req.method==='GET'){
+   const q=String(url.searchParams.get('q')||'').trim().slice(0,240),limit=Math.max(1,Math.min(10,Number(url.searchParams.get('limit'))||6))
+   if(!q)return json({features:[]})
+   const p=new URLSearchParams({q,limit:String(limit)})
+   const lat=Number(url.searchParams.get('lat')),lon=Number(url.searchParams.get('lon'))
+   if(Number.isFinite(lat)&&Number.isFinite(lon)){p.set('lat',String(lat));p.set('lon',String(lon))}
+   const rr=await fetch('https://photon.komoot.io/api/?'+p.toString(),{headers:{'User-Agent':'GeoFoto-KMZ/1.8 (+https://geofoto-kmz.geofotokmz.workers.dev/)'}}).catch(()=>null)
+   if(!rr?.ok)return json({error:'Busca de endereço indisponível'},rr?.status||503)
+   return new Response(rr.body,{headers:{'content-type':'application/json;charset=UTF-8','cache-control':'private, max-age=300'}})
+  }
+  if(url.pathname==='/api/reverse'&&req.method==='GET'){
+   const lat=Number(url.searchParams.get('lat')),lon=Number(url.searchParams.get('lon'))
+   if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return json({features:[]})
+   const rr=await fetch('https://photon.komoot.io/reverse?lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon),{headers:{'User-Agent':'GeoFoto-KMZ/1.8 (+https://geofoto-kmz.geofotokmz.workers.dev/)'}}).catch(()=>null)
+   if(!rr?.ok)return json({error:'Identificação do local indisponível'},rr?.status||503)
+   return new Response(rr.body,{headers:{'content-type':'application/json;charset=UTF-8','cache-control':'private, max-age=300'}})
+  }
+  if(url.pathname==='/api/elevation'&&req.method==='GET'){
+   const latitude=String(url.searchParams.get('latitude')||'').slice(0,1200),longitude=String(url.searchParams.get('longitude')||'').slice(0,1200)
+   if(!latitude||!longitude)return json({elevation:[]})
+   const rr=await fetch('https://api.open-meteo.com/v1/elevation?latitude='+encodeURIComponent(latitude)+'&longitude='+encodeURIComponent(longitude)).catch(()=>null)
+   if(!rr?.ok)return json({error:'Elevação indisponível'},rr?.status||503)
+   return new Response(rr.body,{headers:{'content-type':'application/json;charset=UTF-8','cache-control':'private, max-age=3600'}})
+  }
 
   if(url.pathname==='/api/account'&&req.method==='GET'){
    const t=await env.DB.prepare('SELECT name FROM tenants WHERE id=?').bind(s.tenant_id).first().catch(()=>null)
@@ -480,7 +513,7 @@ async function handleCompanyMasterRoutes(req,env,s,url){
   const tenantId=cleanTenant(decodeURIComponent(m[1])),allowed=await companyTenantAllowed(env,companyId,tenantId)
   if(!allowed)return json({error:'Cluster não vinculado à empresa'},403)
   if(!allowed.enabled)return json({error:'Este cluster está desativado'},409)
-  const accessToken=crypto.randomUUID()+crypto.randomUUID(),exp=new Date(Date.now()+12*60*60*1000).toISOString()
+  const accessToken=crypto.randomUUID()+crypto.randomUUID(),exp=new Date(Date.now()+30*86400000).toISOString()
   await env.DB.prepare('INSERT INTO tenant_sessions (token,tenant_id,role,username,expires_at) VALUES (?,?,?,?,?)').bind(accessToken,tenantId,'admin','MASTER MULTIVALE',exp).run()
   return json({token:accessToken,role:'admin',tenant:tenantId,username:'MASTER MULTIVALE',accountName:allowed.cluster_name||allowed.name,masterCompany:companyId})
  }
@@ -557,7 +590,7 @@ async function handlePlatformMasterRoutes(req,env,s,url){
   const tenantId=cleanTenant(decodeURIComponent(m[1])),t=await env.DB.prepare('SELECT id,name,enabled FROM tenants WHERE id=?').bind(tenantId).first()
   if(!t)return json({error:'Conta não encontrada'},404)
   if(!t.enabled)return json({error:'Esta conta está desativada'},409)
-  const accessToken=crypto.randomUUID()+crypto.randomUUID(),exp=new Date(Date.now()+12*60*60*1000).toISOString()
+  const accessToken=crypto.randomUUID()+crypto.randomUUID(),exp=new Date(Date.now()+30*86400000).toISOString()
   await env.DB.prepare('INSERT INTO tenant_sessions (token,tenant_id,role,username,expires_at) VALUES (?,?,?,?,?)').bind(accessToken,tenantId,'admin','MASTER DO APLICATIVO',exp).run()
   return json({token:accessToken,role:'admin',tenant:tenantId,username:'MASTER DO APLICATIVO',accountName:t.name,ownerMaster:true})
  }

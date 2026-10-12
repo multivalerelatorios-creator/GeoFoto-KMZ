@@ -6,8 +6,8 @@ import mapMarkerIcon from 'leaflet/dist/images/marker-icon.png'
 import mapMarkerRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import mapMarkerShadow from 'leaflet/dist/images/marker-shadow.png'
 import JSZip from 'jszip'
-const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', COMPANY_MASTER_TOKEN='gf_company_master_token', OWNER_MASTER_TOKEN='gf_owner_master_token', COMPANY_MASTER_ORG='gf_company_master_org', MASTER_VIEW='gf_master_view', APP_VERSION='1.8.0'
-let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,mapBaseLayer=null,mapLabelLayer=null,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),photoBlobCache=new Map(),photoBlobInFlight=new Map(),recordPhotoObserver=null,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,recordTechnicianFilter='',recordDateFilter='',recordSearchFilter='',recordSearchTimer=null,torchOn=false,torchSupported=false,cameraZoom=1,cameraZoomMin=1,cameraZoomMax=5,cameraHardwareZoom=false,pinchStartDistance=0,pinchStartZoom=1,captureClockTimer=null
+const $=s=>document.querySelector(s), LOCAL='geofoto_offline_v2', CFG='geofoto_cfg_v1', IDENTITY='gf_identity', ACCOUNT='gf_account', LOCAL_BRAND='gf_brand_local', COMPANY_MASTER_TOKEN='gf_company_master_token', OWNER_MASTER_TOKEN='gf_owner_master_token', COMPANY_MASTER_ORG='gf_company_master_org', MASTER_VIEW='gf_master_view', APP_VERSION='1.8.2'
+let token=sessionStorage.getItem('gf_token')||localStorage.getItem('gf_token')||'',role=sessionStorage.getItem('gf_role')||localStorage.getItem('gf_role')||'user',tenant=sessionStorage.getItem('gf_tenant')||localStorage.getItem(ACCOUNT)||'principal',currentUser=sessionStorage.getItem('gf_user')||localStorage.getItem('gf_user')||'',identity=sessionStorage.getItem(IDENTITY)||localStorage.getItem(IDENTITY)||'',points=[],map,markers,mapBaseLayer=null,mapLabelLayer=null,referenceLayerGroup=null,referenceFeatureLayers=[],referenceKmz=[],referenceKmzCache=new Map(),photoBlobCache=new Map(),photoBlobInFlight=new Map(),recordPhotoObserver=null,stream=null,raw='',photo='',geo=null,cfg=loadCfg(),saving=false,savedPhotoKey='',swRegistration=null,updateReloading=false,pendingBanner='',installPrompt=null,offlineSyncing=false,cloudConnected=false,cloudPending=0,cloudRecords=Number(localStorage.getItem('gf_cloud_count:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),lastCloudSync=Number(localStorage.getItem('gf_cloud_sync:'+(localStorage.getItem(ACCOUNT)||'principal'))||0),cloudStorage=null,cloudAuthExpired=false,recordTechnicianFilter='',recordDateFilter='',recordSearchFilter='',recordSearchTimer=null,torchOn=false,torchSupported=false,cameraZoom=1,cameraZoomMin=1,cameraZoomMax=5,cameraHardwareZoom=false,pinchStartDistance=0,pinchStartZoom=1,captureClockTimer=null
 
 const UI_PATHS={home:'<path d="m3 10 9-7 9 7v10H3z"/><path d="M9 20v-7h6v7"/>',camera:'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',map:'<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2zM9 3v16M15 5v16"/>',records:'<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 6-6 4 4 3-3 5 5"/>',export:'<path d="M7 17H5a4 4 0 0 1-1-8 8 8 0 0 1 15-1 5 5 0 0 1 0 10h-2M12 21V11m-4 4 4-4 4 4"/>',navigation:'<path d="m21 3-7.5 18-3.4-7.1L3 10.5z"/><path d="m10.1 13.9 4.6-4.6"/>',settings:'<path d="m9 3-1 3-3 1-2 4 2 2 1 4 3 1 2 3 4-1 1-3 3-1 2-4-2-2-1-4-3-1-2-2z"/><circle cx="12" cy="12" r="3"/>'};
 function uiIcon(name){return '<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(UI_PATHS[name]||UI_PATHS.camera)+'</svg>'}
@@ -51,6 +51,7 @@ function paintCloudDemo(mode=''){
  let label='☁ Conectando',kind='connecting';
  if(isPersonalMode()){label='☁ Uso pessoal · dados neste aparelho';kind='local'}
  else if(mode==='sync'){label='☁ Sincronizando'+(cloudPending?' · '+cloudPending+' pendente'+(cloudPending===1?'':'s'):'');kind='syncing'}
+ else if(cloudAuthExpired){label='⚠ Sessão expirada · entre novamente';kind='offline'}
  else if(!navigator.onLine||!cloudConnected){label='☁ Offline'+(cloudPending?' · '+cloudPending+' pendente'+(cloudPending===1?'':'s'):'');kind='offline'}
  else if(cloudPending){label='☁ Nuvem conectada · '+cloudPending+' pendente'+(cloudPending===1?'':'s');kind='pending'}
  else{label='☁ Nuvem conectada';kind='online'}
@@ -62,6 +63,7 @@ function paintCloudDemo(mode=''){
  if(last)last.textContent=isPersonalMode()?'Não se aplica':cloudTimeLabel(lastCloudSync)
  paintCloudStorage()
 }
+function statusSessionExpired(){cloudAuthExpired=true;cloudConnected=false;paintCloudDemo();const top=$('#netStatus'),bar=$('#cloudDemoBar');if(top)top.title='Sua sessão venceu. Os dados locais continuam seguros. Entre novamente para reconectar à nuvem.';if(bar)bar.title='Sua sessão venceu. Entre novamente para reconectar à nuvem.'}
 function loadCfg(){
  const d={appName:'GEOFOTO KMZ',company:'',logo:'',banner:'',primaryColor:'#0f766e',defaultTemplate:'essential',enabledTemplates:['essential','compact','location','corporate','technical','evidence','minimal'],showLogo:true,showMap:true};
  try{const saved=JSON.parse(localStorage.getItem(storeKey(CFG))||'{}'),out={...d,...saved};if(!Object.prototype.hasOwnProperty.call(saved,'logo')&&saved.banner)out.logo=saved.banner;return out}catch{return d}
@@ -94,8 +96,13 @@ async function updatePendingStatus(mode=''){
 async function api(path,opt={}){
  const h={'Content-Type':'application/json',...(opt.headers||{})};if(token)h.Authorization=`Bearer ${token}`;if(identity?.trim())h['X-GeoFoto-Identity']=encodeURIComponent(identity.trim());
  const ms=Number(opt.timeout||7000),ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),ms),{timeout,...fetchOpt}=opt;
- try{const r=await fetch('/api'+path,{...fetchOpt,headers:h,signal:fetchOpt.signal||ctrl.signal});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||'Falha na comunicação');return d}
- catch(e){if(e?.name==='AbortError')throw Error('Tempo esgotado na conexão');throw e}
+ try{
+  const r=await fetch('/api'+path,{...fetchOpt,headers:h,signal:fetchOpt.signal||ctrl.signal,cache:'no-store'});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){const err=Error(d.error||'Falha na comunicação');err.status=r.status;err.payload=d;throw err}
+  return d
+ }
+ catch(e){if(e?.name==='AbortError'){const err=Error('Tempo esgotado na conexão');err.status=408;throw err}throw e}
  finally{clearTimeout(timer)}
 }
 async function apiBlob(path,timeoutMs=12000){const h={};if(token)h.Authorization=`Bearer ${token}`;const base=path.startsWith('/api/')?path:'/api'+path,url=base+(base.includes('?')?'&':'?')+'_v='+Date.now(),ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),timeoutMs);try{const r=await fetch(url,{headers:h,signal:ctrl.signal,cache:'no-store'});if(!r.ok)throw Error('Falha ao carregar arquivo');return r.blob()}finally{clearTimeout(timer)}}
@@ -393,14 +400,15 @@ async function syncDownNow(){
  const pending=await pendingAll().catch(()=>[]);
  if(isPersonalMode()){cloudConnected=false;cloudRecords=0;lastCloudSync=0;const legacyRaw=localStorage.getItem(storeKey(LOCAL))||'[]',legacy=JSON.parse(legacyRaw||'[]');points=mergePoints(legacy,pending);await updatePendingStatus();return}
  try{
-  const cloud=await api('/points',{timeout:15000});if(!Array.isArray(cloud))throw Error('Resposta de pontos inválida');await snapshotPut(cloud).catch(()=>{});cloudConnected=true;cloudRecords=cloud.length;lastCloudSync=Date.now();localStorage.setItem(cloudSyncKey(),String(lastCloudSync));localStorage.setItem(cloudCountKey(),String(cloudRecords));points=mergePoints(cloud,pending);refreshMapPoints();
+  const cloud=await api('/points',{timeout:15000});if(!Array.isArray(cloud))throw Error('Resposta de pontos inválida');await snapshotPut(cloud).catch(()=>{});cloudAuthExpired=false;cloudConnected=true;cloudRecords=cloud.length;lastCloudSync=Date.now();localStorage.setItem(cloudSyncKey(),String(lastCloudSync));localStorage.setItem(cloudCountKey(),String(cloudRecords));points=mergePoints(cloud,pending);refreshMapPoints();
   try{const remoteCfg=await api('/config',{timeout:4000});cfg={...cfg,...remoteCfg};if(!Object.prototype.hasOwnProperty.call(remoteCfg,'logo')&&remoteCfg.banner&&!cfg.logo)cfg.logo=remoteCfg.banner;mergeLocalBrand();saveCfg()}catch{mergeLocalBrand()}
   await updatePendingStatus();refreshCloudStorage(false).catch(()=>{})
- }catch{
+ }catch(e){
   cloudConnected=false;lastCloudSync=Number(localStorage.getItem(cloudSyncKey())||0);cloudRecords=Number(localStorage.getItem(cloudCountKey())||0);
   let cached=await snapshotGet().catch(()=>[]);if(!cached.length){try{const raw=localStorage.getItem(storeKey(LOCAL))||(tenant==='principal'?localStorage.getItem(LOCAL):null)||'[]';cached=JSON.parse(raw||'[]')}catch{cached=[]}}
   points=mergePoints(cached,pending);
-  await updatePendingStatus()
+  await updatePendingStatus();
+  if(e?.status===401)statusSessionExpired()
  }
 }
 async function syncPendingQueue(){
@@ -411,12 +419,29 @@ async function syncPendingQueue(){
  try{
   for(const p of pending){
    try{const clean={...p};delete clean._pending;delete clean._tenant;await api('/points',{method:'POST',body:JSON.stringify(clean),timeout:20000});await pendingDelete(p.id);sent++}
-   catch{cloudConnected=false;break}
+   catch(e){cloudConnected=false;if(e?.status===401)statusSessionExpired();break}
   }
   await syncDown().catch(()=>{});
   if(sent){await refreshCloudStorage(true).catch(()=>{});renderDashboard();renderRecords();renderExport();if(map){initMap();setTimeout(()=>map.invalidateSize(),50)}}
   return sent
  }finally{offlineSyncing=false;await updatePendingStatus()}
+}
+let cloudRefreshTask=null;
+async function refreshCloudConnection(force=false){
+ if(isPersonalMode()||!navigator.onLine||!token)return false;
+ if(cloudRefreshTask)return cloudRefreshTask;
+ if(!force&&cloudConnected&&Date.now()-lastCloudSync<2*60*1000)return true;
+ cloudRefreshTask=(async()=>{
+  await syncDown();
+  if(cloudConnected){
+   await syncPendingQueue().catch(()=>{});
+   refreshCloudStorage(false).catch(()=>{});
+   renderDashboard();renderRecords();renderExport();
+   return true
+  }
+  return false
+ })();
+ try{return await cloudRefreshTask}finally{cloudRefreshTask=null}
 }
 function refreshMapPoints(){
  if(map&&$('#map')){initMap();if(!$('#mapPointList')?.classList.contains('hidden'))setMapView(true)}
@@ -1318,13 +1343,12 @@ async function initUpdater(){
  }catch{}
 }
 window.addEventListener('load',initUpdater);
-window.addEventListener('focus',()=>checkUpdateIfDue(false));
-window.addEventListener('pageshow',()=>checkUpdateIfDue(false));
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkUpdateIfDue(false)});
-window.addEventListener('online',()=>syncPendingQueue().catch(()=>{}));
-window.addEventListener('offline',()=>updatePendingStatus());
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&navigator.onLine)syncPendingQueue().catch(()=>{})});
-setInterval(()=>{if(navigator.onLine)syncPendingQueue().catch(()=>{})},60000);
+window.addEventListener('focus',()=>{checkUpdateIfDue(false);if(navigator.onLine)refreshCloudConnection(false).catch(()=>{})});
+window.addEventListener('pageshow',()=>{checkUpdateIfDue(false);if(navigator.onLine)refreshCloudConnection(false).catch(()=>{})});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){checkUpdateIfDue(false);if(navigator.onLine)refreshCloudConnection(false).catch(()=>{})}});
+window.addEventListener('online',()=>refreshCloudConnection(true).catch(()=>{}));
+window.addEventListener('offline',()=>{cloudConnected=false;updatePendingStatus()});
+setInterval(()=>{if(navigator.onLine)refreshCloudConnection(false).catch(()=>{})},60000);
 const initialMasterView=sessionStorage.getItem(MASTER_VIEW);if(initialMasterView==='company'&&sessionStorage.getItem(COMPANY_MASTER_TOKEN)){token=sessionStorage.getItem(COMPANY_MASTER_TOKEN);role='companymaster';companyMasterView().catch(loginView)}else if(initialMasterView==='owner'&&sessionStorage.getItem(OWNER_MASTER_TOKEN)){token=sessionStorage.getItem(OWNER_MASTER_TOKEN);role='superadmin';ownerMasterView().catch(loginView)}else token?appView().catch(loginView):loginView()
 
 

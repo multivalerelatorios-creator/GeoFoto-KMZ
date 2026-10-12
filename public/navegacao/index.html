@@ -32,6 +32,16 @@
       <section id="tab-layers" class="tab-panel active">
         <div class="panel-block">
           <label class="file-btn">＋ Adicionar KMZ/KML<input id="fileInput" type="file" accept=".kmz,.kml,application/vnd.google-earth.kmz,application/vnd.google-earth.kml+xml" multiple></label>
+          <div class="offline-nav-card">
+            <div class="offline-nav-head"><b>Modo offline</b><span id="offlineStateBadge">Preparando...</span></div>
+            <p>Os KMZ/KML carregados ficam salvos neste aparelho. Para mapa completo sem internet no Brasil, adicione um pacote <b>Brasil/Estado .pmtiles</b>.</p>
+            <label class="file-btn offline-file-btn">＋ Adicionar mapa Brasil/Estado offline<input id="offlineMapInput" type="file" accept=".pmtiles,application/octet-stream"></label>
+            <div id="offlineMapInfo" class="offline-map-info">Nenhum pacote de mapa offline instalado.</div>
+            <div class="offline-map-actions">
+              <button id="useOfflineMap" class="btn secondary" type="button" disabled>Usar offline</button>
+              <button id="removeOfflineMap" class="btn danger" type="button" disabled>Remover</button>
+            </div>
+          </div>
           <div class="mobile-map-select"><span>Mapa</span><select id="mobileBaseMap"><option value="satellite">Satélite</option><option value="hybrid">Híbrido</option><option value="street">Ruas</option><option value="topo">Topográfico</option></select></div>
           <div class="search-row"><input id="searchInput" placeholder="Pesquisar cabo, estação, caixa, CS, ponto..."><button id="clearSearch">×</button></div>
           <div id="searchResults" class="search-results hidden"></div>
@@ -197,6 +207,8 @@
 </div>
 <script src="./vendor/leaflet/leaflet.js"></script>
 <script src="./vendor/jszip.min.js"></script>
+<script src="./vendor/pmtiles.js"></script>
+<script src="./vendor/protomaps-leaflet.js"></script>
 <script src="./app.js"></script>
 </body>
 </html>
